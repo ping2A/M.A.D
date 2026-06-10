@@ -1,19 +1,36 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  addPillar,
   addRequirement,
+  addVendor,
+  deletePillar,
   deleteRequirement,
+  deleteVendor,
+  exportVendorsJson,
+  exportWorkspaceJson,
   getEvaluation,
   getPolicy,
+  importVendorsJson,
+  importWorkspaceJson,
   setAssessment,
+  updatePillar,
+  updateProcurement,
+  updateRequirement,
   updateScoring,
+  updateVendor,
 } from "../api/client";
 import type {
   ComplianceStatus,
   EvaluationReport,
   PillarId,
   PolicySummary,
+  ProcurementConfig,
   Requirement,
   ScoringConfig,
+  Vendor,
+  VendorImportMode,
+  VendorImportResult,
+  VendorSetFile,
 } from "../types";
 import { STATUS_CYCLE } from "../types";
 
@@ -21,6 +38,7 @@ export function useEvaluation() {
   const [policy, setPolicy] = useState<PolicySummary | null>(null);
   const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -35,23 +53,65 @@ export function useEvaluation() {
       .finally(() => setLoading(false));
   }, [refresh]);
 
+  const withSave = async (fn: () => Promise<void>) => {
+    setSaving(true);
+    try {
+      await fn();
+      await refresh();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddPillar = async (id: string, name: string, description: string) => {
+    await withSave(() => addPillar(id, name, description).then(() => undefined));
+  };
+
+  const handleUpdatePillar = async (id: string, name: string, description: string) => {
+    await withSave(() => updatePillar(id, name, description).then(() => undefined));
+  };
+
+  const handleDeletePillar = async (id: string) => {
+    await withSave(() => deletePillar(id));
+  };
+
   const handleAddRequirement = async (pillarId: PillarId, requirement: Requirement) => {
-    await addRequirement(pillarId, requirement);
-    await refresh();
+    await withSave(() => addRequirement(pillarId, requirement).then(() => undefined));
+  };
+
+  const handleUpdateRequirement = async (
+    id: string,
+    pillarId: PillarId,
+    requirement: Requirement,
+  ) => {
+    await withSave(() => updateRequirement(id, pillarId, requirement).then(() => undefined));
   };
 
   const handleDeleteRequirement = async (id: string) => {
-    await deleteRequirement(id);
-    await refresh();
+    await withSave(() => deleteRequirement(id));
+  };
+
+  const handleAddVendor = async (vendor: Vendor) => {
+    await withSave(() => addVendor(vendor).then(() => undefined));
+  };
+
+  const handleUpdateVendor = async (id: string, vendor: Vendor) => {
+    await withSave(() => updateVendor(id, vendor).then(() => undefined));
+  };
+
+  const handleDeleteVendor = async (id: string) => {
+    await withSave(() => deleteVendor(id));
   };
 
   const handleSetAssessment = async (
     vendorId: string,
     requirementId: string,
     status: ComplianceStatus,
+    notes?: string | null,
   ) => {
-    await setAssessment(vendorId, requirementId, status);
-    await refresh();
+    await withSave(() =>
+      setAssessment(vendorId, requirementId, status, notes ?? undefined).then(() => undefined),
+    );
   };
 
   const handleCycleAssessment = async (vendorId: string, requirementId: string) => {
@@ -72,20 +132,74 @@ export function useEvaluation() {
   };
 
   const handleUpdateScoring = async (scoring: ScoringConfig) => {
-    await updateScoring(scoring);
-    await refresh();
+    await withSave(() => updateScoring(scoring).then(() => undefined));
+  };
+
+  const handleUpdateProcurement = async (procurement: ProcurementConfig) => {
+    await withSave(() => updateProcurement(procurement).then(() => undefined));
+  };
+
+  const handleExportWorkspace = async () => {
+    await exportWorkspaceJson();
+  };
+
+  const handleExportVendors = async () => {
+    await exportVendorsJson();
+  };
+
+  const handleImportWorkspace = async (json: string, vendorMode: VendorImportMode) => {
+    setSaving(true);
+    try {
+      const { result } = await importWorkspaceJson(json, vendorMode);
+      await refresh();
+      return {
+        kind: result.kind,
+        pillars: result.pillars,
+        requirements: result.requirements,
+        vendors: result.vendors,
+      };
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleImportVendors = async (
+    file: VendorSetFile,
+    mode: VendorImportMode,
+  ): Promise<VendorImportResult> => {
+    setSaving(true);
+    try {
+      const { result } = await importVendorsJson(file, mode);
+      await refresh();
+      return result;
+    } finally {
+      setSaving(false);
+    }
   };
 
   return {
     policy,
     evaluation,
     loading,
+    saving,
     error,
     refresh,
+    addPillar: handleAddPillar,
+    updatePillar: handleUpdatePillar,
+    deletePillar: handleDeletePillar,
     addRequirement: handleAddRequirement,
+    updateRequirement: handleUpdateRequirement,
     deleteRequirement: handleDeleteRequirement,
+    addVendor: handleAddVendor,
+    updateVendor: handleUpdateVendor,
+    deleteVendor: handleDeleteVendor,
     setAssessment: handleSetAssessment,
     cycleAssessment: handleCycleAssessment,
     updateScoring: handleUpdateScoring,
+    updateProcurement: handleUpdateProcurement,
+    exportWorkspace: handleExportWorkspace,
+    exportVendors: handleExportVendors,
+    importWorkspace: handleImportWorkspace,
+    importVendors: handleImportVendors,
   };
 }

@@ -1,4 +1,13 @@
-export type PillarId = "cybersecurity_dlp" | "dfir" | "platform_os";
+export type BuiltinPillarId = "cybersecurity_dlp" | "dfir" | "platform_os";
+
+export const BUILTIN_PILLAR_IDS: BuiltinPillarId[] = [
+  "cybersecurity_dlp",
+  "dfir",
+  "platform_os",
+];
+
+/** Criteria group identifier (built-in or custom). */
+export type PillarId = string;
 
 export type RequirementSeverity = "critical" | "high" | "medium";
 
@@ -44,6 +53,17 @@ export interface PolicySummary {
   critical_requirements: number;
   pillars: Pillar[];
   scoring: ScoringConfig;
+  procurement: ProcurementConfig;
+}
+
+export type BillingPeriod = "monthly" | "annual";
+
+export interface VendorPricing {
+  currency: string;
+  billing_period: BillingPeriod;
+  price_per_device?: number | null;
+  global_price?: number | null;
+  notes?: string | null;
 }
 
 export interface Vendor {
@@ -51,6 +71,14 @@ export interface Vendor {
   name: string;
   description: string;
   website?: string | null;
+  pricing?: VendorPricing | null;
+  tags?: string[];
+}
+
+export interface ProcurementConfig {
+  device_count: number;
+  price_weight_percent: number;
+  use_price_in_ranking: boolean;
 }
 
 export interface RequirementAssessment {
@@ -67,9 +95,41 @@ export interface VendorAssessment {
 export interface EvaluationWorkspace {
   policy_version: string;
   scoring: ScoringConfig;
+  procurement: ProcurementConfig;
   pillars: Pillar[];
   vendors: Vendor[];
   assessments: Record<string, VendorAssessment>;
+}
+
+export interface VendorSetFile {
+  format_version: number;
+  exported_at: string;
+  vendors: Vendor[];
+  assessments: Record<string, VendorAssessment>;
+}
+
+export interface WorkspaceBundle {
+  format_version: number;
+  exported_at: string;
+  workspace: EvaluationWorkspace;
+}
+
+export interface WorkspaceImportResult {
+  kind: string;
+  pillars: number;
+  requirements: number;
+  vendors: number;
+  assessments: number;
+  vendor_result?: VendorImportResult | null;
+}
+
+export type VendorImportMode = "merge" | "replace";
+
+export interface VendorImportResult {
+  added: number;
+  updated: number;
+  skipped: number;
+  removed: number;
 }
 
 export interface PillarScore {
@@ -102,6 +162,11 @@ export interface VendorScore {
   pillar_scores: PillarScore[];
   overall_score_percent: number;
   critical_gaps: string[];
+  annual_cost_per_device?: number | null;
+  total_annual_cost?: number | null;
+  price_currency?: string | null;
+  price_score_percent?: number | null;
+  composite_score_percent?: number | null;
 }
 
 export interface EvaluationResult {
@@ -115,6 +180,7 @@ export interface EvaluationReport {
   total_requirements: number;
   critical_requirements: number;
   scoring: ScoringConfig;
+  procurement: ProcurementConfig;
   vendors: EvaluationResult[];
 }
 
@@ -125,15 +191,3 @@ export const STATUS_CYCLE: ComplianceStatus[] = [
   "non_compliant",
 ];
 
-export const STATUS_LABELS: Record<ComplianceStatus, string> = {
-  compliant: "Compliant",
-  partial: "Partial",
-  non_compliant: "Non-compliant",
-  untested: "Untested",
-};
-
-export const PILLAR_LABELS: Record<PillarId, string> = {
-  cybersecurity_dlp: "Cybersecurity & DLP",
-  dfir: "DFIR",
-  platform_os: "Platform & OS",
-};

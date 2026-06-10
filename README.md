@@ -1,10 +1,10 @@
-# Operation M.A.D.
+# MAD
 
-**Mobile MDM Vendor Evaluation Platform**
+**Mobile Assessment & Defense — Mobile MDM Vendor Evaluation Platform**
 
-![Operation M.A.D. logo](assets/logo.png)
+![MAD logo](assets/logo.png)
 
-Operation M.A.D. (**M**obile **A**ssessment & **D**ecision) evaluates mobile Device Management (MDM) solutions for **iOS and Android** only. Using **Policy-as-Code**, it tests vendors (Intune, Jamf, Workspace ONE, etc.) against Cybersecurity, DFIR, and Platform requirements — producing detailed technical reports to support procurement decisions.
+MAD (**M**obile **A**ssessment & **D**efense) evaluates mobile Device Management (MDM) solutions for **iOS and Android** only. Using **Policy-as-Code**, it tests vendors (Intune, Jamf, Workspace ONE, etc.) against Cybersecurity, DFIR, and Platform requirements — producing detailed technical reports to support procurement decisions.
 
 > **This is an evaluation tool.** It does not deploy policies, manage devices, or enforce compliance in production.
 

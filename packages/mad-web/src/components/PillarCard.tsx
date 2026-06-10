@@ -1,4 +1,5 @@
 import type { Pillar } from "../types";
+import { useLocale } from "../i18n/LocaleContext";
 
 const PILLAR_ICONS: Record<string, string> = {
   cybersecurity_dlp: "🛡️",
@@ -13,6 +14,7 @@ interface PillarCardProps {
 }
 
 export function PillarCard({ pillar, selected, onClick }: PillarCardProps) {
+  const { t } = useLocale();
   const critical = pillar.requirements.filter((r) => r.severity === "critical").length;
 
   return (
@@ -25,8 +27,12 @@ export function PillarCard({ pillar, selected, onClick }: PillarCardProps) {
       <h3 className="pillar-name">{pillar.name}</h3>
       <p className="pillar-desc">{pillar.description}</p>
       <div className="pillar-meta">
-        <span>{pillar.requirements.length} requirements</span>
-        <span className="critical">{critical} critical</span>
+        <span>
+          {pillar.requirements.length} {t.pillarCard.requirements}
+        </span>
+        <span className="critical">
+          {critical} {t.pillarCard.critical}
+        </span>
       </div>
       <style>{`
         .pillar-card {
@@ -50,9 +56,7 @@ export function PillarCard({ pillar, selected, onClick }: PillarCardProps) {
           border-color: var(--mad-cyan);
           box-shadow: 0 4px 20px rgba(0, 180, 216, 0.25);
         }
-        .pillar-icon {
-          font-size: 1.5rem;
-        }
+        .pillar-icon { font-size: 1.5rem; }
         .pillar-name {
           margin: 0.5rem 0 0.25rem;
           font-size: 1rem;

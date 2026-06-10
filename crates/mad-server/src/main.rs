@@ -5,15 +5,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
     routing::{get, post, put},
     Json, Router,
 };
 use mad_core::{
-    default_html_options, render_html, Evaluator, EvaluationWorkspace, PillarId, PolicyBundle,
-    Requirement, ScoringConfig,
+    default_html_options, default_pdf_options, render_html, render_pdf, Evaluator,
+    parse_workspace_import, EvaluationWorkspace, Pillar, PolicyBundle, ProcurementConfig,
+    Requirement, ScoringConfig, Vendor, VendorImportMode, VendorImportResult, VendorSetFile,
+    WorkspaceImportResult,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
@@ -40,12 +42,42 @@ struct PolicySummary {
     critical_requirements: usize,
     pillars: Vec<mad_core::Pillar>,
     scoring: ScoringConfig,
+    procurement: ProcurementConfig,
+}
+
+#[derive(Deserialize)]
+struct AddPillarBody {
+    id: String,
+    name: String,
+    description: String,
+}
+
+#[derive(Deserialize)]
+struct UpdatePillarBody {
+    name: String,
+    description: String,
 }
 
 #[derive(Deserialize)]
 struct AddRequirementBody {
-    pillar_id: PillarId,
+    pillar_id: String,
     requirement: Requirement,
+}
+
+#[derive(Deserialize)]
+struct UpdateRequirementBody {
+    pillar_id: String,
+    requirement: Requirement,
+}
+
+#[derive(Deserialize)]
+struct AddVendorBody {
+    vendor: Vendor,
+}
+
+#[derive(Deserialize)]
+struct UpdateVendorBody {
+    vendor: Vendor,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +91,29 @@ struct SetAssessmentBody {
 #[derive(Deserialize)]
 struct UpdateScoringBody {
     scoring: ScoringConfig,
+}
+
+#[derive(Deserialize)]
+struct UpdateProcurementBody {
+    procurement: ProcurementConfig,
+}
+
+#[derive(Deserialize)]
+struct ImportVendorsQuery {
+    #[serde(default)]
+    mode: VendorImportMode,
+}
+
+#[derive(Serialize)]
+struct ImportVendorsResponse {
+    result: VendorImportResult,
+    workspace: EvaluationWorkspace,
+}
+
+#[derive(Serialize)]
+struct WorkspaceImportResponse {
+    result: WorkspaceImportResult,
+    workspace: EvaluationWorkspace,
 }
 
 #[tokio::main]
@@ -97,16 +152,32 @@ async fn main() {
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/workspace", get(get_workspace).put(put_workspace))
+        .route("/api/workspace/export", get(export_workspace))
+        .route("/api/workspace/import", post(import_workspace))
+        .route("/api/workspace/pillars", post(add_pillar))
+        .route(
+            "/api/workspace/pillars/{id}",
+            put(update_pillar).delete(delete_pillar),
+        )
         .route("/api/workspace/requirements", post(add_requirement))
         .route(
             "/api/workspace/requirements/{id}",
-            axum::routing::delete(delete_requirement),
+            put(update_requirement).delete(delete_requirement),
+        )
+        .route("/api/workspace/vendors", post(add_vendor))
+        .route("/api/workspace/vendors/export", get(export_vendors))
+        .route("/api/workspace/vendors/import", post(import_vendors))
+        .route(
+            "/api/workspace/vendors/{id}",
+            put(update_vendor).delete(delete_vendor),
         )
         .route("/api/workspace/assessments", put(set_assessment))
         .route("/api/workspace/scoring", put(update_scoring))
+        .route("/api/workspace/procurement", put(update_procurement))
         .route("/api/policy", get(policy))
         .route("/api/evaluation", get(evaluation))
         .route("/api/report.html", get(report_html))
+        .route("/api/report.pdf", get(report_pdf))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state);
@@ -129,7 +200,7 @@ async fn evaluate_from_state(state: &AppState) -> Result<mad_core::EvaluationRep
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
-        name: "Operation M.A.D. (Mobile MDM Evaluation)",
+        name: "MAD (Mobile Assessment & Defense)",
     })
 }
 
@@ -145,6 +216,63 @@ async fn put_workspace(
     Ok(Json(state.workspace.get().await))
 }
 
+async fn add_pillar(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<AddPillarBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let pillar = Pillar {
+        id: body.id,
+        name: body.name,
+        description: body.description,
+        requirements: Vec::new(),
+    };
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.add_pillar(pillar);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn update_pillar(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdatePillarBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.pillars.iter().any(|p| p.id == id) {
+        return Ok(Json(workspace));
+    }
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.update_pillar(&id, body.name, body.description);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn delete_pillar(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.pillars.iter().any(|p| p.id == id) {
+        return Ok(StatusCode::NOT_FOUND);
+    }
+    if mad_core::pillar::builtin::is_builtin(&id) {
+        return Ok(StatusCode::FORBIDDEN);
+    }
+    state
+        .workspace
+        .update(|w| {
+            w.remove_pillar(&id);
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn add_requirement(
     State(state): State<Arc<AppState>>,
     Json(body): Json<AddRequirementBody>,
@@ -152,7 +280,30 @@ async fn add_requirement(
     let ws = state
         .workspace
         .update(|w| {
-            w.add_requirement(body.pillar_id, body.requirement);
+            w.add_requirement(&body.pillar_id, body.requirement);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn update_requirement(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateRequirementBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    let exists = workspace
+        .pillars
+        .iter()
+        .flat_map(|p| &p.requirements)
+        .any(|r| r.id == id);
+    if !exists {
+        return Ok(Json(workspace));
+    }
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.update_requirement(&id, &body.pillar_id, body.requirement);
         })
         .await?;
     Ok(Json(ws))
@@ -175,6 +326,162 @@ async fn delete_requirement(
         .workspace
         .update(|w| {
             w.remove_requirement(&id);
+        })
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn export_workspace(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, AppError> {
+    let workspace = state.workspace.get().await;
+    let export = workspace.export_bundle(export_timestamp());
+    let json = serde_json::to_string_pretty(&export).map_err(json_err)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"mad-workspace.json\"",
+            ),
+        ],
+        json,
+    ))
+}
+
+async fn import_workspace(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ImportVendorsQuery>,
+    body: String,
+) -> Result<Json<WorkspaceImportResponse>, AppError> {
+    let parsed = parse_workspace_import(&body).map_err(|e| {
+        mad_core::MadError::Io {
+            path: PathBuf::from("workspace-import"),
+            source: std::io::Error::new(std::io::ErrorKind::InvalidData, e),
+        }
+    })?;
+    let mut import_result = WorkspaceImportResult {
+        kind: "unknown",
+        pillars: 0,
+        requirements: 0,
+        vendors: 0,
+        assessments: 0,
+        vendor_result: None,
+    };
+    let workspace = state
+        .workspace
+        .update(|w| {
+            import_result = w.import_parsed(parsed, query.mode);
+        })
+        .await?;
+    Ok(Json(WorkspaceImportResponse {
+        result: import_result,
+        workspace,
+    }))
+}
+
+fn json_err(e: serde_json::Error) -> mad_core::MadError {
+    mad_core::MadError::Io {
+        path: PathBuf::from("json"),
+        source: std::io::Error::new(std::io::ErrorKind::Other, e),
+    }
+}
+
+async fn export_vendors(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
+    let workspace = state.workspace.get().await;
+    let exported_at = export_timestamp();
+    let export = workspace.export_vendor_set(exported_at);
+    let json = serde_json::to_string_pretty(&export).map_err(json_err)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/json; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"mad-vendors.json\"",
+            ),
+        ],
+        json,
+    ))
+}
+
+async fn import_vendors(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ImportVendorsQuery>,
+    Json(file): Json<VendorSetFile>,
+) -> Result<Json<ImportVendorsResponse>, AppError> {
+    let mode = query.mode;
+    let mut import_result = VendorImportResult {
+        added: 0,
+        updated: 0,
+        skipped: 0,
+        removed: 0,
+    };
+    let workspace = state
+        .workspace
+        .update(|w| {
+            import_result = w.import_vendor_set(file, mode);
+        })
+        .await?;
+    Ok(Json(ImportVendorsResponse {
+        result: import_result,
+        workspace,
+    }))
+}
+
+fn export_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{secs}")
+}
+
+async fn add_vendor(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<AddVendorBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let ws = state
+        .workspace
+        .update(|w| {
+            if !w.add_vendor(body.vendor) {
+                tracing::warn!("vendor already exists or could not be added");
+            }
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn update_vendor(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateVendorBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.vendors.iter().any(|v| v.id.0 == id) {
+        return Err(AppError(mad_core::MadError::VendorNotFound(id)));
+    }
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.update_vendor(&id, body.vendor);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn delete_vendor(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.vendors.iter().any(|v| v.id.0 == id) {
+        return Ok(StatusCode::NOT_FOUND);
+    }
+    state
+        .workspace
+        .update(|w| {
+            w.remove_vendor(&id);
         })
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -220,7 +527,21 @@ async fn policy(State(state): State<Arc<AppState>>) -> Result<Json<PolicySummary
         critical_requirements: workspace.critical_requirements(),
         pillars: workspace.pillars.clone(),
         scoring: workspace.scoring.clone(),
+        procurement: workspace.procurement.clone(),
     }))
+}
+
+async fn update_procurement(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<UpdateProcurementBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.procurement = body.procurement;
+        })
+        .await?;
+    Ok(Json(ws))
 }
 
 async fn evaluation(
@@ -243,8 +564,43 @@ async fn report_html(State(state): State<Arc<AppState>>) -> Result<impl IntoResp
     let html = render_html(&bundle, &evaluation, &options);
 
     Ok((
-        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"mad-evaluation-report.html\"",
+            ),
+        ],
         html,
+    ))
+}
+
+async fn report_pdf(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
+    let workspace = state.workspace.get().await;
+    let evaluation = evaluate_from_state(&state).await?;
+    let bundle = workspace.to_policy_bundle();
+    let logo_path = if state.logo_path.exists() {
+        Some(state.logo_path.as_path())
+    } else {
+        None
+    };
+    let options = default_pdf_options(logo_path);
+    let pdf = render_pdf(&bundle, &evaluation, &options).map_err(|e| {
+        mad_core::MadError::Io {
+            path: PathBuf::from("report.pdf"),
+            source: std::io::Error::new(std::io::ErrorKind::Other, e),
+        }
+    })?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/pdf"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"mad-evaluation-report.pdf\"",
+            ),
+        ],
+        pdf,
     ))
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "mad-core"
-description = "Core policy definitions and MDM vendor evaluation engine for Operation M.A.D."
+description = "Core policy definitions and MDM vendor evaluation engine for MAD (Mobile Assessment & Defense)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,8 @@ serde_json.workspace = true
 serde_yaml.workspace = true
 thiserror.workspace = true
 base64 = "0.22"
+printpdf = { version = "0.7", features = ["embedded_images"] }
+image = "0.24"
 time = { version = "0.3", features = ["formatting"] }
 
 [dev-dependencies]

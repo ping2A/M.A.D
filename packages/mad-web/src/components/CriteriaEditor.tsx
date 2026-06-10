@@ -1,192 +1,327 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { usePolicyContent } from "../hooks/usePolicyContent";
+import { useLocale } from "../i18n/LocaleContext";
 import type { Pillar, PillarId, Requirement, RequirementSeverity } from "../types";
-import { PILLAR_LABELS } from "../types";
+import { suggestNextRequirementId } from "../utils/suggestRequirementId";
 
 interface CriteriaEditorProps {
   pillars: Pillar[];
   onAdd: (pillarId: PillarId, requirement: Requirement) => Promise<void>;
+  onUpdate: (id: string, pillarId: PillarId, requirement: Requirement) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
 
-const PILLAR_IDS: PillarId[] = ["cybersecurity_dlp", "dfir", "platform_os"];
+const DEFAULT_PILLAR: PillarId = "cybersecurity_dlp";
 
-export function CriteriaEditor({ pillars, onAdd, onDelete }: CriteriaEditorProps) {
-  const [open, setOpen] = useState(false);
-  const [pillarId, setPillarId] = useState<PillarId>("cybersecurity_dlp");
-  const [id, setId] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [severity, setSeverity] = useState<RequirementSeverity>("high");
-  const [platforms, setPlatforms] = useState("ios, android");
-  const [evaluationMethod, setEvaluationMethod] = useState("");
-  const [technicalCriteria, setTechnicalCriteria] = useState("");
+const emptyForm = (pillars: Pillar[]) => ({
+  pillarId: pillars[0]?.id ?? DEFAULT_PILLAR,
+  id: suggestNextRequirementId(pillars[0]?.id ?? DEFAULT_PILLAR, pillars),
+  title: "",
+  description: "",
+  severity: "high" as RequirementSeverity,
+  platforms: "ios, android",
+  evaluationMethod: "",
+  technicalCriteria: "",
+});
+
+export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaEditorProps) {
+  const { t, format, pillarLabel, severityLabel } = useLocale();
+  const { localizePillars } = usePolicyContent();
+  const displayPillars = useMemo(() => localizePillars(pillars), [pillars, localizePillars]);
+  const pillarIds = useMemo(() => pillars.map((p) => p.id), [pillars]);
+  const [mode, setMode] = useState<"closed" | "add" | "edit">("closed");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState(() => emptyForm(pillars));
   const [saving, setSaving] = useState(false);
+  const [filterPillar, setFilterPillar] = useState<PillarId | "all">("all");
 
-  const allRequirements = pillars.flatMap((p) =>
+  const pillarName = (id: PillarId) => {
+    const localized = displayPillars.find((p) => p.id === id)?.name;
+    return localized ?? pillarLabel(id);
+  };
+
+  const allRequirements = displayPillars.flatMap((p) =>
     p.requirements.map((r) => ({ ...r, pillarId: p.id, pillarName: p.name })),
   );
 
+  const canonicalById = useMemo(() => {
+    const map = new Map<string, Requirement & { pillarId: PillarId }>();
+    for (const p of pillars) {
+      for (const r of p.requirements) {
+        map.set(r.id, { ...r, pillarId: p.id });
+      }
+    }
+    return map;
+  }, [pillars]);
+
+  const filtered = filterPillar === "all"
+    ? allRequirements
+    : allRequirements.filter((r) => r.pillarId === filterPillar);
+
+  const resetForm = () => {
+    setForm(emptyForm(pillars));
+    setEditId(null);
+    setMode("closed");
+  };
+
+  const openAdd = () => {
+    setForm(emptyForm(pillars));
+    setEditId(null);
+    setMode("add");
+  };
+
+  const openEdit = (req: Requirement & { pillarId: PillarId }) => {
+    const canonical = canonicalById.get(req.id) ?? req;
+    setEditId(canonical.id);
+    setForm({
+      pillarId: canonical.pillarId,
+      id: canonical.id,
+      title: canonical.title,
+      description: canonical.description,
+      severity: canonical.severity,
+      platforms: canonical.platforms.join(", "),
+      evaluationMethod: canonical.evaluation_method ?? "",
+      technicalCriteria: canonical.technical_criteria ?? "",
+    });
+    setMode("edit");
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!id.trim() || !title.trim()) return;
+    if (!form.id.trim() || !form.title.trim()) return;
     setSaving(true);
     try {
-      await onAdd(pillarId, {
-        id: id.trim(),
-        title: title.trim(),
-        description: description.trim(),
-        severity,
-        platforms: platforms.split(",").map((s) => s.trim()).filter(Boolean),
+      const requirement: Requirement = {
+        id: form.id.trim(),
+        title: form.title.trim(),
+        description: form.description.trim(),
+        severity: form.severity,
+        platforms: form.platforms.split(",").map((s) => s.trim()).filter(Boolean),
         tags: [],
-        evaluation_method: evaluationMethod.trim() || undefined,
-        technical_criteria: technicalCriteria.trim() || undefined,
-      });
-      setId("");
-      setTitle("");
-      setDescription("");
-      setEvaluationMethod("");
-      setTechnicalCriteria("");
-      setOpen(false);
+        evaluation_method: form.evaluationMethod.trim() || undefined,
+        technical_criteria: form.technicalCriteria.trim() || undefined,
+      };
+      if (mode === "edit" && editId) {
+        await onUpdate(editId, form.pillarId, requirement);
+      } else {
+        await onAdd(form.pillarId, requirement);
+      }
+      resetForm();
     } finally {
       setSaving(false);
     }
+  };
+
+  const setField = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
+    setForm((prev) => {
+      const next = { ...prev, [key]: value };
+      if (key === "pillarId" && mode === "add") {
+        next.id = suggestNextRequirementId(value as PillarId, pillars);
+      }
+      return next;
+    });
+  };
+
+  const applySuggestedId = () => {
+    setForm((prev) => ({
+      ...prev,
+      id: suggestNextRequirementId(prev.pillarId, pillars),
+    }));
   };
 
   return (
     <section className="criteria-editor">
       <div className="toolbar">
         <div>
-          <h2>Evaluation Criteria</h2>
-          <p className="intro">
-            Define what each MDM vendor must demonstrate. Criteria are weighted by
-            severity (critical ×3, high ×2, medium ×1) in the overall score.
-          </p>
+          <h2 className="section-title">{t.criteria.title}</h2>
+          <p className="section-intro">{t.criteria.intro}</p>
         </div>
-        <button type="button" className="btn-primary" onClick={() => setOpen(!open)}>
-          {open ? "Cancel" : "+ Add Criterion"}
-        </button>
+        {mode === "closed" && (
+          <button type="button" className="btn btn-primary" onClick={openAdd}>
+            {t.criteria.add}
+          </button>
+        )}
       </div>
 
-      {open && (
-        <form className="add-form" onSubmit={submit}>
+      {(mode === "add" || mode === "edit") && (
+        <form className="form-panel" onSubmit={submit}>
+          <h3>{mode === "edit" ? t.criteria.edit : t.criteria.new}</h3>
           <div className="form-row">
             <label>
-              Pillar
-              <select value={pillarId} onChange={(e) => setPillarId(e.target.value as PillarId)}>
-                {PILLAR_IDS.map((pid) => (
+              {t.common.pillar}
+              <select
+                value={form.pillarId}
+                onChange={(e) => setField("pillarId", e.target.value as PillarId)}
+              >
+                {pillarIds.map((pid) => (
                   <option key={pid} value={pid}>
-                    {PILLAR_LABELS[pid]}
+                    {pillarName(pid)}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              ID
-              <input
-                value={id}
-                onChange={(e) => setId(e.target.value)}
-                placeholder="e.g. dlp-004"
-                required
-              />
+              {t.common.id}
+              <div className="id-field">
+                <input
+                  value={form.id}
+                  onChange={(e) => setField("id", e.target.value)}
+                  placeholder={t.criteria.placeholderId}
+                  required
+                  disabled={mode === "edit"}
+                />
+                {mode === "add" && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={applySuggestedId}
+                  >
+                    {t.criteria.suggestId}
+                  </button>
+                )}
+              </div>
             </label>
             <label>
-              Severity
+              {t.common.severity}
               <select
-                value={severity}
-                onChange={(e) => setSeverity(e.target.value as RequirementSeverity)}
+                value={form.severity}
+                onChange={(e) => setField("severity", e.target.value as RequirementSeverity)}
               >
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
+                <option value="critical">{severityLabel("critical")}</option>
+                <option value="high">{severityLabel("high")}</option>
+                <option value="medium">{severityLabel("medium")}</option>
               </select>
             </label>
           </div>
           <label>
-            Title
+            {t.common.title}
             <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Short requirement title"
+              value={form.title}
+              onChange={(e) => setField("title", e.target.value)}
+              placeholder={t.criteria.placeholderTitle}
               required
             />
           </label>
           <label>
-            Description
+            {t.common.description}
             <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={form.description}
+              onChange={(e) => setField("description", e.target.value)}
               rows={2}
-              placeholder="What the MDM must be capable of"
+              placeholder={t.criteria.placeholderDescription}
             />
           </label>
           <div className="form-row">
             <label>
-              Platforms
+              {t.common.platforms}
               <input
-                value={platforms}
-                onChange={(e) => setPlatforms(e.target.value)}
-                placeholder="ios, android"
+                value={form.platforms}
+                onChange={(e) => setField("platforms", e.target.value)}
+                placeholder={t.criteria.placeholderPlatforms}
               />
             </label>
           </div>
           <label>
-            Evaluation method
+            {t.criteria.evaluationMethod}
             <textarea
-              value={evaluationMethod}
-              onChange={(e) => setEvaluationMethod(e.target.value)}
+              value={form.evaluationMethod}
+              onChange={(e) => setField("evaluationMethod", e.target.value)}
               rows={2}
-              placeholder="How to test this in a lab"
+              placeholder={t.criteria.placeholderEvaluation}
             />
           </label>
           <label>
-            Technical criteria
+            {t.criteria.technicalCriteria}
             <textarea
-              value={technicalCriteria}
-              onChange={(e) => setTechnicalCriteria(e.target.value)}
+              value={form.technicalCriteria}
+              onChange={(e) => setField("technicalCriteria", e.target.value)}
               rows={2}
-              placeholder="APIs, protocols, MDM payloads"
+              placeholder={t.criteria.placeholderTechnical}
             />
           </label>
-          <button type="submit" className="btn-primary" disabled={saving}>
-            {saving ? "Saving…" : "Add Criterion"}
-          </button>
+          <div className="form-actions">
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              {saving
+                ? t.common.saving
+                : mode === "edit"
+                  ? t.common.saveChanges
+                  : t.criteria.add}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={resetForm}>
+              {t.common.cancel}
+            </button>
+          </div>
         </form>
       )}
 
-      <div className="criteria-table-wrap">
-        <table className="criteria-table">
+      <div className="filter-bar">
+        <span>{t.common.filterByPillar}</span>
+        <select
+          value={filterPillar}
+          onChange={(e) => setFilterPillar(e.target.value as PillarId | "all")}
+        >
+          <option value="all">
+            {t.criteria.allPillars} ({allRequirements.length})
+          </option>
+          {pillarIds.map((pid) => (
+            <option key={pid} value={pid}>
+              {pillarName(pid)} (
+              {allRequirements.filter((r) => r.pillarId === pid).length})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="data-table-wrap">
+        <table className="data-table">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Pillar</th>
-              <th>Title</th>
-              <th>Severity</th>
-              <th>Platforms</th>
-              <th></th>
+              <th>{t.common.id}</th>
+              <th>{t.common.pillar}</th>
+              <th>{t.common.title}</th>
+              <th>{t.common.severity}</th>
+              <th>{t.common.platforms}</th>
+              <th>{t.common.actions}</th>
             </tr>
           </thead>
           <tbody>
-            {allRequirements.map((req) => (
+            {filtered.map((req) => (
               <tr key={req.id}>
                 <td><code>{req.id}</code></td>
-                <td>{PILLAR_LABELS[req.pillarId]}</td>
+                <td>{pillarName(req.pillarId)}</td>
                 <td>
                   <strong>{req.title}</strong>
                   {req.description && <span className="desc">{req.description}</span>}
                 </td>
                 <td>
-                  <span className={`badge sev-${req.severity}`}>{req.severity}</span>
+                  <span className={`badge sev-${req.severity}`}>
+                    {severityLabel(req.severity)}
+                  </span>
                 </td>
                 <td>{req.platforms.join(", ")}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="btn-danger"
-                    onClick={() => onDelete(req.id)}
-                    title="Remove criterion"
-                  >
-                    ×
-                  </button>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-icon"
+                      onClick={() => openEdit(req)}
+                      title={t.common.edit}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-icon"
+                      onClick={() => {
+                        if (confirm(format(t.criteria.confirmRemove, { id: req.id }))) {
+                          onDelete(req.id);
+                        }
+                      }}
+                      title={t.common.remove}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -195,47 +330,22 @@ export function CriteriaEditor({ pillars, onAdd, onDelete }: CriteriaEditorProps
       </div>
 
       <style>{`
-        .criteria-editor h2 { margin: 0; color: var(--mad-navy); }
-        .intro { color: var(--mad-text-muted); margin: 0.25rem 0 0; font-size: 0.9rem; }
-        .toolbar { display: flex; justify-content: space-between; align-items: flex-start;
-          gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
-        .btn-primary {
-          background: var(--mad-navy); color: white; border: 2px solid var(--mad-cyan);
-          padding: 0.5rem 1rem; border-radius: 6px; font-weight: 600; cursor: pointer;
+        .desc {
+          display: block; font-size: 0.8rem; color: var(--mad-text-muted);
+          font-weight: 400; margin-top: 0.2rem;
         }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-        .btn-danger {
-          background: none; border: 1px solid var(--mad-critical); color: var(--mad-critical);
-          width: 28px; height: 28px; border-radius: 4px; cursor: pointer; font-size: 1.1rem;
+        .filter-bar {
+          display: flex; align-items: center; gap: 0.6rem;
+          margin-bottom: 0.75rem; font-size: 0.85rem; color: var(--mad-text-muted);
         }
-        .add-form {
-          background: white; border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem;
-          box-shadow: 0 2px 8px rgba(10,22,40,0.08); display: flex; flex-direction: column; gap: 0.75rem;
+        .filter-bar select {
+          padding: 0.4rem 0.6rem; border: 1px solid var(--mad-border);
+          border-radius: 6px; font-family: inherit; font-size: 0.85rem;
         }
-        .add-form label { display: flex; flex-direction: column; gap: 0.25rem;
-          font-size: 0.8rem; font-weight: 600; color: var(--mad-navy); }
-        .add-form input, .add-form select, .add-form textarea {
-          font-weight: 400; padding: 0.5rem; border: 1px solid #dde1e6; border-radius: 4px;
-          font-family: inherit; font-size: 0.9rem;
-        }
-        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; }
-        .criteria-table-wrap {
-          background: white; border-radius: 10px; overflow: auto;
-          box-shadow: 0 2px 8px rgba(10,22,40,0.08);
-        }
-        .criteria-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-        .criteria-table th, .criteria-table td { padding: 0.65rem 0.75rem; text-align: left;
-          border-bottom: 1px solid #e8eaed; vertical-align: top; }
-        .criteria-table th { background: var(--mad-navy-light); color: white; font-weight: 600; }
-        .criteria-table code { font-family: var(--font-mono); font-size: 0.75rem;
-          background: #f0f2f5; padding: 0.1rem 0.35rem; border-radius: 3px; }
-        .criteria-table .desc { display: block; font-size: 0.8rem; color: var(--mad-text-muted);
-          font-weight: 400; margin-top: 0.2rem; }
-        .badge { font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
-          padding: 0.1rem 0.4rem; border-radius: 3px; }
-        .sev-critical { background: #fde8ea; color: var(--mad-critical); }
-        .sev-high { background: #fff3e0; color: var(--mad-high); }
-        .sev-medium { background: #fff8e1; color: #b8860b; }
+        .row-actions { display: flex; gap: 0.25rem; }
+        .id-field { display: flex; gap: 0.35rem; align-items: center; }
+        .id-field input { flex: 1; }
+        .btn-sm { font-size: 0.75rem; padding: 0.25rem 0.5rem; white-space: nowrap; }
       `}</style>
     </section>
   );

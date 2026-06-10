@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::pillar::PillarId;
+use crate::pricing::VendorPricing;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -27,6 +28,10 @@ pub struct Vendor {
     pub description: String,
     #[serde(default)]
     pub website: Option<String>,
+    #[serde(default)]
+    pub pricing: Option<VendorPricing>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,4 +82,14 @@ pub struct VendorScore {
     pub pillar_scores: Vec<PillarScore>,
     pub overall_score_percent: f64,
     pub critical_gaps: Vec<String>,
+    #[serde(default)]
+    pub annual_cost_per_device: Option<f64>,
+    #[serde(default)]
+    pub total_annual_cost: Option<f64>,
+    #[serde(default)]
+    pub price_currency: Option<String>,
+    #[serde(default)]
+    pub price_score_percent: Option<f64>,
+    #[serde(default)]
+    pub composite_score_percent: Option<f64>,
 }

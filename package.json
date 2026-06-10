@@ -2,7 +2,7 @@
   "name": "mad",
   "version": "0.1.0",
   "private": true,
-  "description": "Operation M.A.D. — Mobile MDM vendor evaluation platform (iOS & Android)",
+  "description": "MAD — Mobile Assessment & Defense, mobile MDM vendor evaluation platform (iOS & Android)",
   "workspaces": [
     "packages/*"
   ],

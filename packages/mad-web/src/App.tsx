@@ -1,51 +1,89 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ComparisonView } from "./components/ComparisonView";
 import { CriteriaEditor } from "./components/CriteriaEditor";
+import { PillarGroupEditor } from "./components/PillarGroupEditor";
 import { Header } from "./components/Header";
 import { PillarCard } from "./components/PillarCard";
 import { ScoreMatrix } from "./components/ScoreMatrix";
+import { ScoreOverview } from "./components/ScoreOverview";
+import { ProcurementPanel } from "./components/ProcurementPanel";
+import { WorkspaceDataPanel } from "./components/WorkspaceDataPanel";
 import { ScoringPanel } from "./components/ScoringPanel";
 import { StatsBar } from "./components/StatsBar";
 import { TechnicalReport } from "./components/TechnicalReport";
+import { VendorEditor } from "./components/VendorEditor";
 import { VendorScorecard } from "./components/VendorScorecard";
 import { useEvaluation } from "./hooks/useEvaluation";
+import { usePolicyContent } from "./hooks/usePolicyContent";
+import { useLocale } from "./i18n/LocaleContext";
+import { rankVendors } from "./utils/ranking";
 
-type Tab = "overview" | "criteria" | "matrix" | "compare" | "vendors" | "report";
+type Tab = "overview" | "vendors" | "criteria" | "matrix" | "compare" | "scorecards" | "report";
 
 export default function App() {
+  const { t } = useLocale();
+  const { localizePillars, localizeEvaluation } = usePolicyContent();
   const {
     policy,
     evaluation,
     loading,
+    saving,
     error,
+    addPillar,
+    updatePillar,
+    deletePillar,
     addRequirement,
+    updateRequirement,
     deleteRequirement,
+    addVendor,
+    updateVendor,
+    deleteVendor,
+    setAssessment,
     cycleAssessment,
     updateScoring,
+    updateProcurement,
+    exportWorkspace,
+    exportVendors,
+    importWorkspace,
   } = useEvaluation();
 
-  const [tab, setTab] = useState<Tab>("compare");
+  const [tab, setTab] = useState<Tab>("matrix");
 
-  const rankedVendors = evaluation
-    ? [...evaluation.vendors].sort(
-        (a, b) =>
-          b.overall_score.overall_score_percent -
-          a.overall_score.overall_score_percent,
-      )
-    : [];
+  const displayPillars = useMemo(
+    () => (policy ? localizePillars(policy.pillars) : []),
+    [policy, localizePillars],
+  );
+
+  const displayEvaluation = useMemo(
+    () => (evaluation ? localizeEvaluation(evaluation) : null),
+    [evaluation, localizeEvaluation],
+  );
+
+  const rankedVendors = displayEvaluation ? rankVendors(displayEvaluation) : [];
+
+  const tabItems: [Tab, string][] = [
+    ["matrix", t.tabs.matrix],
+    ["vendors", t.tabs.vendors],
+    ["criteria", t.tabs.criteria],
+    ["compare", t.tabs.compare],
+    ["scorecards", t.tabs.scorecards],
+    ["overview", t.tabs.overview],
+    ["report", t.tabs.report],
+  ];
 
   return (
     <div className="app">
       <Header />
 
       <main className="main">
-        {loading && <p className="loading">Loading evaluation data…</p>}
+        {loading && <p className="loading">{t.loading}</p>}
         {error && (
           <div className="error-banner">
-            <strong>Unable to connect to mad-server.</strong>
+            <strong>{t.error.title}</strong>
             <p>
-              Start the API with <code>cargo run -p mad-server</code> from the
-              project root, then refresh.
+              {t.error.hintBefore}
+              <code>cargo run -p mad-server</code>
+              {t.error.hintAfter}
             </p>
             <p className="error-detail">{error}</p>
           </div>
@@ -53,9 +91,10 @@ export default function App() {
 
         {policy && evaluation && (
           <>
-            {policy.scoring && (
-              <ScoringPanel scoring={policy.scoring} onChange={updateScoring} />
-            )}
+            <ScoreOverview
+              evaluation={displayEvaluation!}
+              onSelectVendor={() => setTab("matrix")}
+            />
 
             <StatsBar
               version={policy.version}
@@ -65,22 +104,43 @@ export default function App() {
               vendors={evaluation.vendors.length}
             />
 
-            <nav className="tabs">
-              {(
-                [
-                  ["overview", "Overview"],
-                  ["criteria", "Criteria"],
-                  ["matrix", "Score Matrix"],
-                  ["compare", "Comparison"],
-                  ["vendors", "Scorecards"],
-                  ["report", "Report"],
-                ] as [Tab, string][]
-              ).map(([t, label]) => (
+            {policy.scoring && (
+              <ScoringPanel
+                key={policy.scoring.use_severity_weighting ? "sw-on" : "sw-off"}
+                scoring={policy.scoring}
+                onChange={updateScoring}
+                collapsed
+              />
+            )}
+
+            {policy.procurement && (
+              <ProcurementPanel
+                procurement={policy.procurement}
+                onChange={updateProcurement}
+                collapsed
+              />
+            )}
+
+            <WorkspaceDataPanel
+              onExportWorkspace={exportWorkspace}
+              onExportVendors={exportVendors}
+              onImportWorkspace={importWorkspace}
+              stats={{
+                pillars: policy.pillar_count,
+                requirements: policy.total_requirements,
+                vendors: evaluation.vendors.length,
+              }}
+            />
+
+            <nav className="tabs" role="tablist">
+              {tabItems.map(([tKey, label]) => (
                 <button
-                  key={t}
+                  key={tKey}
                   type="button"
-                  className={`tab ${tab === t ? "active" : ""}`}
-                  onClick={() => setTab(t)}
+                  role="tab"
+                  aria-selected={tab === tKey}
+                  className={`tab ${tab === tKey ? "active" : ""}`}
+                  onClick={() => setTab(tKey)}
                 >
                   {label}
                 </button>
@@ -89,55 +149,70 @@ export default function App() {
 
             {tab === "overview" && (
               <section className="section">
-                <h2>Mobile MDM Vendor Evaluation</h2>
-                <p className="section-intro">
-                  Define criteria, score vendors in the matrix, and compare results.
-                  Scores use severity weighting — critical requirements count more toward
-                  the final ranking.
-                </p>
+                <h2 className="section-title">{t.overview.title}</h2>
+                <p className="section-intro">{t.overview.intro}</p>
                 <div className="pillar-grid">
-                  {policy.pillars.map((pillar) => (
+                  {displayPillars.map((pillar) => (
                     <PillarCard key={pillar.id} pillar={pillar} />
                   ))}
                 </div>
                 <div className="workflow-card">
-                  <h3>Evaluation workflow</h3>
+                  <h3>{t.overview.workflowTitle}</h3>
                   <ol>
-                    <li><strong>Criteria</strong> — review or add requirements per pillar</li>
-                    <li><strong>Score Matrix</strong> — click cells to set compliance per vendor</li>
-                    <li><strong>Comparison</strong> — radar chart, leaderboard, heatmap</li>
-                    <li><strong>Report</strong> — download shareable HTML for stakeholders</li>
+                    <li><strong>{t.tabs.vendors}</strong> — {t.overview.workflowVendors}</li>
+                    <li><strong>{t.tabs.criteria}</strong> — {t.overview.workflowCriteria}</li>
+                    <li><strong>{t.tabs.matrix}</strong> — {t.overview.workflowMatrix}</li>
+                    <li><strong>{t.tabs.compare}</strong> — {t.overview.workflowCompare}</li>
+                    <li><strong>{t.tabs.report}</strong> — {t.overview.workflowReport}</li>
                   </ol>
                 </div>
               </section>
             )}
 
-            {tab === "criteria" && (
-              <CriteriaEditor
-                pillars={policy.pillars}
-                onAdd={addRequirement}
-                onDelete={deleteRequirement}
+            {tab === "vendors" && (
+              <VendorEditor
+                evaluation={evaluation}
+                onAdd={addVendor}
+                onUpdate={updateVendor}
+                onDelete={deleteVendor}
               />
+            )}
+
+            {tab === "criteria" && policy && (
+              <>
+                <PillarGroupEditor
+                  pillars={policy.pillars}
+                  onAdd={addPillar}
+                  onUpdate={updatePillar}
+                  onDelete={deletePillar}
+                />
+                <CriteriaEditor
+                  pillars={policy.pillars}
+                  onAdd={addRequirement}
+                  onUpdate={updateRequirement}
+                  onDelete={deleteRequirement}
+                />
+              </>
             )}
 
             {tab === "matrix" && (
               <ScoreMatrix
-                pillars={policy.pillars}
-                evaluation={evaluation}
+                pillars={displayPillars}
+                evaluation={displayEvaluation!}
+                onSetStatus={setAssessment}
                 onCycle={cycleAssessment}
+                saving={saving}
               />
             )}
 
             {tab === "compare" && (
-              <ComparisonView evaluation={evaluation} pillars={policy.pillars} />
+              <ComparisonView evaluation={displayEvaluation!} pillars={displayPillars} />
             )}
 
-            {tab === "vendors" && (
+            {tab === "scorecards" && displayEvaluation && (
               <section className="section">
-                <h2>Vendor Scorecards</h2>
-                <p className="section-intro">
-                  Severity-weighted scores. Critical gaps disqualify regardless of percentage.
-                </p>
+                <h2 className="section-title">{t.scorecards.title}</h2>
+                <p className="section-intro">{t.scorecards.intro}</p>
                 <div className="vendor-grid">
                   {rankedVendors.map((result, i) => (
                     <VendorScorecard key={result.vendor.name} result={result} rank={i + 1} detailed />
@@ -147,56 +222,94 @@ export default function App() {
             )}
 
             {tab === "report" && (
-              <TechnicalReport policy={policy} evaluation={evaluation} />
+              <TechnicalReport
+                policy={{ ...policy, pillars: displayPillars }}
+                evaluation={displayEvaluation!}
+              />
             )}
           </>
         )}
       </main>
 
-      <footer className="footer">
-        Operation M.A.D. — Mobile MDM Vendor Evaluation (evaluation only)
-      </footer>
+      <footer className="footer">{t.footer}</footer>
 
       <style>{`
         .app { min-height: 100vh; display: flex; flex-direction: column; }
-        .main { flex: 1; max-width: 1200px; margin: 0 auto; padding: 2rem; width: 100%; }
+        .main {
+          flex: 1;
+          max-width: 1400px;
+          margin: 0 auto;
+          padding: 1.5rem 2rem 2.5rem;
+          width: 100%;
+        }
         .loading { text-align: center; color: var(--mad-text-muted); padding: 3rem; }
         .error-banner {
-          background: #fde8ea; border: 1px solid var(--mad-critical);
-          border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;
+          background: #fde8ea;
+          border: 1px solid var(--mad-critical);
+          border-radius: var(--mad-radius);
+          padding: 1.25rem;
+          margin-bottom: 1.5rem;
         }
         .error-banner code {
-          background: rgba(0,0,0,0.06); padding: 0.15rem 0.4rem;
-          border-radius: 4px; font-family: var(--font-mono);
+          background: rgba(0,0,0,0.06);
+          padding: 0.15rem 0.4rem;
+          border-radius: 4px;
+          font-family: var(--font-mono);
         }
         .error-detail { font-size: 0.85rem; color: var(--mad-text-muted); }
         .tabs {
-          display: flex; gap: 0.25rem; margin: 1.5rem 0; border-bottom: 2px solid #dde1e6;
-          overflow-x: auto; padding-bottom: 0;
+          display: flex;
+          gap: 0.15rem;
+          margin: 1.5rem 0 1.25rem;
+          border-bottom: 2px solid var(--mad-border);
+          overflow-x: auto;
+          padding-bottom: 0;
         }
         .tab {
-          background: none; border: none; padding: 0.75rem 1rem; font-size: 0.85rem;
-          font-weight: 600; color: var(--mad-text-muted); cursor: pointer;
-          border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap;
+          background: none;
+          border: none;
+          padding: 0.75rem 1rem;
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: var(--mad-text-muted);
+          cursor: pointer;
+          border-bottom: 3px solid transparent;
+          margin-bottom: -2px;
+          white-space: nowrap;
+          font-family: inherit;
         }
         .tab:hover { color: var(--mad-navy); }
-        .tab.active { color: var(--mad-cyan-dim); border-bottom-color: var(--mad-cyan); }
-        .section h2 { margin: 0 0 0.5rem; color: var(--mad-navy); }
-        .section-intro { color: var(--mad-text-muted); margin: 0 0 1.5rem; max-width: 72ch; }
+        .tab.active {
+          color: var(--mad-cyan-dim);
+          border-bottom-color: var(--mad-cyan);
+        }
         .pillar-grid {
-          display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 1rem; margin-bottom: 1.5rem;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+          gap: 1rem;
+          margin-bottom: 1.5rem;
         }
         .workflow-card {
-          background: white; border-radius: 10px; padding: 1.5rem;
-          border-left: 4px solid var(--mad-cyan); box-shadow: 0 2px 8px rgba(10,22,40,0.08);
+          background: white;
+          border-radius: var(--mad-radius);
+          padding: 1.5rem;
+          border-left: 4px solid var(--mad-cyan);
+          box-shadow: var(--mad-shadow);
         }
         .workflow-card h3 { margin: 0 0 0.75rem; color: var(--mad-navy); }
-        .workflow-card ol { margin: 0; padding-left: 1.25rem; color: var(--mad-text-muted); line-height: 1.8; }
+        .workflow-card ol {
+          margin: 0;
+          padding-left: 1.25rem;
+          color: var(--mad-text-muted);
+          line-height: 1.8;
+        }
         .vendor-grid { display: flex; flex-direction: column; gap: 1rem; }
         .footer {
-          text-align: center; padding: 1.5rem; font-size: 0.8rem;
-          color: var(--mad-text-muted); border-top: 1px solid #dde1e6;
+          text-align: center;
+          padding: 1.5rem;
+          font-size: 0.8rem;
+          color: var(--mad-text-muted);
+          border-top: 1px solid var(--mad-border);
         }
       `}</style>
     </div>

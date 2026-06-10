@@ -10,7 +10,7 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-authors = ["Operation M.A.D."]
+authors = ["MAD (Mobile Assessment & Defense)"]
 
 [workspace.dependencies]
 mad-core = { path = "crates/mad-core" }

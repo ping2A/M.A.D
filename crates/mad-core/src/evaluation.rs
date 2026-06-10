@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::MadResult;
 use crate::pillar::{Pillar, PillarId};
 use crate::policy::PolicyBundle;
+use crate::pricing::{compute_annual_costs, ProcurementConfig};
 use crate::scoring::ScoringConfig;
 use crate::vendor::{
     ComplianceStatus, PillarScore, RequirementAssessment, Vendor, VendorAssessment, VendorScore,
@@ -41,12 +42,14 @@ pub struct EvaluationReport {
     pub total_requirements: usize,
     pub critical_requirements: usize,
     pub scoring: ScoringConfig,
+    pub procurement: ProcurementConfig,
     pub vendors: Vec<EvaluationResult>,
 }
 
 pub struct Evaluator {
     bundle: PolicyBundle,
     scoring: ScoringConfig,
+    procurement: ProcurementConfig,
     vendors: Vec<Vendor>,
     assessments: Vec<VendorAssessment>,
 }
@@ -56,6 +59,7 @@ impl Evaluator {
         Self {
             bundle,
             scoring: ScoringConfig::default(),
+            procurement: ProcurementConfig::default(),
             vendors: Vec::new(),
             assessments: Vec::new(),
         }
@@ -66,9 +70,15 @@ impl Evaluator {
         self
     }
 
+    pub fn with_procurement(mut self, procurement: ProcurementConfig) -> Self {
+        self.procurement = procurement;
+        self
+    }
+
     pub fn from_workspace(workspace: &EvaluationWorkspace) -> Self {
         let mut evaluator = Self::new(workspace.to_policy_bundle())
-            .with_scoring(workspace.scoring.clone());
+            .with_scoring(workspace.scoring.clone())
+            .with_procurement(workspace.procurement.clone());
         for vendor in &workspace.vendors {
             let assessment = workspace
                 .assessments
@@ -101,18 +111,21 @@ impl Evaluator {
             .map(|p| p.manifest.version)
             .unwrap_or_else(|| "unknown".into());
 
-        let vendors: Vec<EvaluationResult> = self
+        let mut vendors: Vec<EvaluationResult> = self
             .vendors
             .iter()
             .zip(self.assessments.iter())
             .map(|(vendor, assessment)| self.evaluate_vendor(vendor.clone(), assessment))
             .collect();
 
+        apply_price_ranking(&mut vendors, &self.procurement);
+
         Ok(EvaluationReport {
             policy_version,
             total_requirements: self.bundle.total_requirements(),
             critical_requirements: self.bundle.critical_requirements(),
             scoring: self.scoring.clone(),
+            procurement: self.procurement.clone(),
             vendors,
         })
     }
@@ -152,10 +165,10 @@ impl Evaluator {
             })
             .collect();
 
-        let score = score_pillar(pillar.id, &requirements, &self.scoring);
+        let score = score_pillar(&pillar.id, &requirements, &self.scoring);
 
         PillarEvaluation {
-            pillar_id: pillar.id,
+            pillar_id: pillar.id.clone(),
             pillar_name: pillar.name.clone(),
             requirements,
             score,
@@ -164,7 +177,7 @@ impl Evaluator {
 }
 
 fn score_pillar(
-    pillar_id: PillarId,
+    pillar_id: &str,
     requirements: &[RequirementResult],
     scoring: &ScoringConfig,
 ) -> PillarScore {
@@ -195,7 +208,7 @@ fn score_pillar(
     };
 
     PillarScore {
-        pillar_id,
+        pillar_id: pillar_id.to_string(),
         compliant,
         partial,
         non_compliant,
@@ -238,10 +251,69 @@ fn compute_overall_score(
         pillar_scores,
         overall_score_percent,
         critical_gaps,
+        annual_cost_per_device: None,
+        total_annual_cost: None,
+        price_currency: None,
+        price_score_percent: None,
+        composite_score_percent: None,
+    }
+}
+
+fn apply_price_ranking(results: &mut [EvaluationResult], procurement: &ProcurementConfig) {
+    let device_count = procurement.device_count;
+
+    for result in results.iter_mut() {
+        result.overall_score.annual_cost_per_device = None;
+        result.overall_score.total_annual_cost = None;
+        result.overall_score.price_currency = None;
+        result.overall_score.price_score_percent = None;
+        result.overall_score.composite_score_percent = None;
+
+        let Some(pricing) = &result.vendor.pricing else {
+            continue;
+        };
+
+        let (per_device, total) = compute_annual_costs(pricing, device_count);
+        result.overall_score.annual_cost_per_device = per_device;
+        result.overall_score.total_annual_cost = total;
+        result.overall_score.price_currency = Some(pricing.currency.clone());
+    }
+
+    if !procurement.use_price_in_ranking {
+        return;
+    }
+
+    let costs: Vec<Option<f64>> = results
+        .iter()
+        .map(|r| r.overall_score.annual_cost_per_device)
+        .collect();
+    let valid: Vec<f64> = costs.iter().filter_map(|c| *c).collect();
+    if valid.is_empty() {
+        return;
+    }
+
+    let min = valid.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = valid.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let weight = procurement.price_weight_percent.clamp(0.0, 100.0) / 100.0;
+
+    for (result, cost) in results.iter_mut().zip(costs) {
+        let Some(cost) = cost else {
+            continue;
+        };
+        let price_score = if (max - min).abs() < f64::EPSILON {
+            100.0
+        } else {
+            100.0 * (max - cost) / (max - min)
+        };
+        let capability = result.overall_score.overall_score_percent;
+        let composite = (1.0 - weight) * capability + weight * price_score;
+        result.overall_score.price_score_percent = Some(price_score);
+        result.overall_score.composite_score_percent = Some(composite);
     }
 }
 
 pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
+    use crate::pricing::{BillingPeriod, VendorPricing};
     use crate::vendor::VendorId;
     use std::collections::HashMap;
 
@@ -250,6 +322,14 @@ pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
         name: "Microsoft Intune".into(),
         description: "Cloud-based unified endpoint management".into(),
         website: Some("https://www.microsoft.com/en-us/security/business/endpoint-management/microsoft-intune".into()),
+        pricing: Some(VendorPricing {
+            currency: "USD".into(),
+            billing_period: BillingPeriod::Monthly,
+            price_per_device: Some(8.0),
+            global_price: None,
+            notes: Some("Typical enterprise per-device list price".into()),
+        }),
+        tags: vec!["cloud".into(), "microsoft".into(), "shortlist".into()],
     };
 
     let jamf = Vendor {
@@ -257,6 +337,14 @@ pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
         name: "Jamf Pro".into(),
         description: "Apple-focused enterprise mobility management".into(),
         website: Some("https://www.jamf.com".into()),
+        pricing: Some(VendorPricing {
+            currency: "USD".into(),
+            billing_period: BillingPeriod::Monthly,
+            price_per_device: Some(12.0),
+            global_price: None,
+            notes: None,
+        }),
+        tags: vec!["apple".into(), "ios".into()],
     };
 
     let workspace_one = Vendor {
@@ -264,6 +352,14 @@ pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
         name: "VMware Workspace ONE".into(),
         description: "Digital workspace platform with UEM capabilities".into(),
         website: Some("https://www.omnissa.com/products/workspace-one".into()),
+        pricing: Some(VendorPricing {
+            currency: "USD".into(),
+            billing_period: BillingPeriod::Annual,
+            price_per_device: Some(72.0),
+            global_price: Some(50_000.0),
+            notes: Some("Platform fee plus annual per-device license".into()),
+        }),
+        tags: vec!["uem".into(), "shortlist".into()],
     };
 
     fn assess(

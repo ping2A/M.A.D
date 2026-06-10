@@ -1,3 +1,5 @@
+import { useLocale } from "../i18n/LocaleContext";
+
 interface StatsBarProps {
   version: string;
   pillars: number;
@@ -7,27 +9,29 @@ interface StatsBarProps {
 }
 
 export function StatsBar({ version, pillars, requirements, critical, vendors }: StatsBarProps) {
+  const { t } = useLocale();
+
   return (
     <div className="stats-bar">
       <div className="stat">
         <span className="stat-value">{version}</span>
-        <span className="stat-label">Policy Version</span>
+        <span className="stat-label">{t.stats.policyVersion}</span>
       </div>
       <div className="stat">
         <span className="stat-value">{pillars}</span>
-        <span className="stat-label">Pillars</span>
+        <span className="stat-label">{t.common.pillars}</span>
       </div>
       <div className="stat">
         <span className="stat-value">{requirements}</span>
-        <span className="stat-label">Requirements</span>
+        <span className="stat-label">{t.stats.requirements}</span>
       </div>
       <div className="stat">
         <span className="stat-value critical">{critical}</span>
-        <span className="stat-label">Critical</span>
+        <span className="stat-label">{t.stats.critical}</span>
       </div>
       <div className="stat">
         <span className="stat-value">{vendors}</span>
-        <span className="stat-label">Vendors</span>
+        <span className="stat-label">{t.stats.vendors}</span>
       </div>
       <style>{`
         .stats-bar {
@@ -39,9 +43,7 @@ export function StatsBar({ version, pillars, requirements, critical, vendors }: 
           padding: 1.25rem;
           color: white;
         }
-        .stat {
-          text-align: center;
-        }
+        .stat { text-align: center; }
         .stat-value {
           display: block;
           font-size: 1.5rem;
@@ -49,9 +51,7 @@ export function StatsBar({ version, pillars, requirements, critical, vendors }: 
           font-family: var(--font-mono);
           color: var(--mad-cyan);
         }
-        .stat-value.critical {
-          color: #ff6b6b;
-        }
+        .stat-value.critical { color: #ff6b6b; }
         .stat-label {
           display: block;
           font-size: 0.75rem;

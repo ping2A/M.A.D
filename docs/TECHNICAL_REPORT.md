@@ -1,12 +1,12 @@
-# Operation M.A.D. — Technical Report
+# MAD — Technical Report
 
-**Mobile MDM Vendor Evaluation Platform**
+**Mobile Assessment & Defense — Mobile MDM Vendor Evaluation Platform**
 
 ---
 
 ## 1. Purpose and Scope
 
-Operation M.A.D. (**M**obile **A**ssessment & **D**ecision) is an **evaluation-only** system. It exists to help security and IT teams **select** a corporate Mobile Device Management (MDM) solution for **iOS and Android** devices.
+MAD (**M**obile **A**ssessment & **D**efense) is an **evaluation-only** system. It exists to help security and IT teams **select** a corporate Mobile Device Management (MDM) solution for **iOS and Android** devices.
 
 | In scope | Out of scope |
 |----------|--------------|
@@ -188,4 +188,4 @@ To add a new requirement:
 
 ---
 
-*Operation M.A.D. v0.1.0 — evaluation platform for mobile MDM procurement decisions.*
+*MAD v0.1.0 — Mobile Assessment & Defense, evaluation platform for mobile MDM procurement decisions.*

@@ -1,4 +1,5 @@
 import type { EvaluationResult } from "../types";
+import { useLocale } from "../i18n/LocaleContext";
 
 interface VendorScorecardProps {
   result: EvaluationResult;
@@ -13,6 +14,7 @@ function scoreColor(percent: number): string {
 }
 
 export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps) {
+  const { t, statusLabel } = useLocale();
   const { vendor, overall_score, pillars } = result;
   const score = overall_score.overall_score_percent;
 
@@ -50,15 +52,15 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
           pillars.map((p) => (
             <details key={p.pillar_id} className="pillar-detail">
               <summary>
-                {p.pillar_name} — requirement breakdown
+                {p.pillar_name} — {t.scorecards.breakdown}
               </summary>
               <table className="detail-table">
                 <thead>
                   <tr>
-                    <th>ID</th>
-                    <th>Requirement</th>
-                    <th>Status</th>
-                    <th>Notes</th>
+                    <th>{t.common.id}</th>
+                    <th>{t.scorecards.requirement}</th>
+                    <th>{t.common.status}</th>
+                    <th>{t.scorecards.notes}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -66,8 +68,8 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
                     <tr key={r.requirement_id}>
                       <td><code>{r.requirement_id}</code></td>
                       <td>{r.title}</td>
-                      <td className={`status-${r.status}`}>{r.status.replace("_", " ")}</td>
-                      <td>{r.notes ?? "—"}</td>
+                      <td className={`status-${r.status}`}>{statusLabel(r.status)}</td>
+                      <td>{r.notes ?? t.common.none}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -77,7 +79,7 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
 
         {overall_score.critical_gaps.length > 0 && (
           <div className="critical-gaps">
-            <strong>Critical gaps:</strong>
+            <strong>{t.scorecards.criticalGaps}</strong>
             <ul>
               {overall_score.critical_gaps.map((gap) => (
                 <li key={gap}>{gap}</li>
@@ -103,9 +105,7 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
           opacity: 0.3;
           min-width: 2rem;
         }
-        .vendor-body {
-          flex: 1;
-        }
+        .vendor-body { flex: 1; }
         .vendor-header {
           display: flex;
           justify-content: space-between;
@@ -126,21 +126,14 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
           font-size: 0.85rem;
           color: var(--mad-text-muted);
         }
-        .pillar-bars {
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-        }
+        .pillar-bars { display: flex; flex-direction: column; gap: 0.5rem; }
         .pillar-bar-row {
           display: grid;
           grid-template-columns: 1fr 2fr auto;
           gap: 0.75rem;
           align-items: center;
         }
-        .pillar-bar-label {
-          font-size: 0.8rem;
-          color: var(--mad-text-muted);
-        }
+        .pillar-bar-label { font-size: 0.8rem; color: var(--mad-text-muted); }
         .pillar-bar-track {
           height: 8px;
           background: #e8eaed;
@@ -166,17 +159,9 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
           border-radius: 6px;
           font-size: 0.85rem;
         }
-        .critical-gaps ul {
-          margin: 0.5rem 0 0;
-          padding-left: 1.25rem;
-        }
-        .critical-gaps li {
-          margin-bottom: 0.25rem;
-        }
-        .pillar-detail {
-          margin-top: 0.75rem;
-          font-size: 0.85rem;
-        }
+        .critical-gaps ul { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+        .critical-gaps li { margin-bottom: 0.25rem; }
+        .pillar-detail { margin-top: 0.75rem; font-size: 0.85rem; }
         .pillar-detail summary {
           cursor: pointer;
           font-weight: 600;
@@ -194,14 +179,8 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
           text-align: left;
           border-bottom: 1px solid #e8eaed;
         }
-        .detail-table th {
-          background: #f4f6f8;
-          font-weight: 600;
-        }
-        .detail-table code {
-          font-family: var(--font-mono);
-          font-size: 0.75rem;
-        }
+        .detail-table th { background: #f4f6f8; font-weight: 600; }
+        .detail-table code { font-family: var(--font-mono); font-size: 0.75rem; }
         .detail-table .status-compliant { color: var(--mad-compliant); font-weight: 600; }
         .detail-table .status-partial { color: var(--mad-partial); font-weight: 600; }
         .detail-table .status-non_compliant { color: var(--mad-gap); font-weight: 600; }

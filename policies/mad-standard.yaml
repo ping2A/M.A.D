@@ -1,6 +1,6 @@
 manifest:
   version: "1.0.0"
-  name: "Operation M.A.D. MDM Evaluation Standard"
+  name: "MAD MDM Evaluation Standard"
   description: >
     Evaluation-only standard for mobile MDM solutions (iOS and Android).
     Used to assess vendor capabilities against Cybersecurity, DFIR, and

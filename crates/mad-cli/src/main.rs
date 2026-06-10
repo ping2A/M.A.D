@@ -2,14 +2,15 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use mad_core::{
-    default_html_options, render_html, render_markdown, Evaluator, PolicyBundle,
+    default_html_options, default_pdf_options, render_html, render_markdown, render_pdf,
+    Evaluator, PolicyBundle,
 };
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
 #[command(
     name = "mad",
-    about = "Operation M.A.D. — Mobile MDM vendor evaluation CLI (evaluation only)",
+    about = "MAD — Mobile Assessment & Defense, mobile MDM vendor evaluation CLI (evaluation only)",
     version
 )]
 struct Cli {
@@ -36,7 +37,7 @@ enum Commands {
     Report {
         #[arg(long, default_value = "policies")]
         policies_dir: PathBuf,
-        /// Output format: html (shareable) or md
+        /// Output format: html (shareable), pdf, or md
         #[arg(long, default_value = "html", value_enum)]
         format: ReportFormat,
         /// Write report to file (recommended for HTML sharing)
@@ -58,6 +59,7 @@ enum OutputFormat {
 enum ReportFormat {
     #[default]
     Html,
+    Pdf,
     Md,
 }
 
@@ -93,7 +95,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 fn cmd_policy(policies_dir: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let bundle = PolicyBundle::load_dir(policies_dir)?;
 
-    println!("Operation M.A.D. Policy Bundle");
+    println!("MAD Policy Bundle");
     println!("  Pillars:     {}", bundle.pillar_count());
     println!("  Requirements: {}", bundle.total_requirements());
     println!("  Critical:    {}", bundle.critical_requirements());
@@ -134,7 +136,7 @@ fn cmd_evaluate(
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         OutputFormat::Table => {
-            println!("Operation M.A.D. Vendor Evaluation Report");
+            println!("MAD Vendor Evaluation Report");
             println!("  Policy version: {}", report.policy_version);
             println!("  Requirements:   {}", report.total_requirements);
             println!();
@@ -193,41 +195,40 @@ fn cmd_report(
 
     let evaluation = evaluator.evaluate()?;
 
-    let content = match format {
-        ReportFormat::Md => render_markdown(&bundle, &evaluation),
-        ReportFormat::Html => {
-            let logo_path = if logo.exists() { Some(logo.as_path()) } else { None };
-            let options = default_html_options(logo_path);
-            render_html(&bundle, &evaluation, &options)
-        }
-    };
-
     let default_output = match format {
         ReportFormat::Md => PathBuf::from("mad-evaluation-report.md"),
         ReportFormat::Html => PathBuf::from("mad-evaluation-report.html"),
+        ReportFormat::Pdf => PathBuf::from("mad-evaluation-report.pdf"),
     };
+    let path = output.cloned().unwrap_or(default_output);
 
-    match output {
-        Some(path) => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent)?;
-                }
-            }
-            std::fs::write(path, &content)?;
-            eprintln!("Report written to {}", path.display());
-            if matches!(format, ReportFormat::Html) {
-                eprintln!("Open in any browser or share as a single self-contained file.");
-            }
-        }
-        None => {
-            std::fs::write(&default_output, &content)?;
-            eprintln!("Report written to {}", default_output.display());
-            if matches!(format, ReportFormat::Html) {
-                eprintln!("Open in any browser or share as a single self-contained file.");
-            }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
         }
     }
+
+    match format {
+        ReportFormat::Md => {
+            let content = render_markdown(&bundle, &evaluation);
+            std::fs::write(&path, content)?;
+        }
+        ReportFormat::Html => {
+            let logo_path = if logo.exists() { Some(logo.as_path()) } else { None };
+            let options = default_html_options(logo_path);
+            let content = render_html(&bundle, &evaluation, &options);
+            std::fs::write(&path, content)?;
+            eprintln!("Open in any browser or share as a single self-contained file.");
+        }
+        ReportFormat::Pdf => {
+            let logo_path = if logo.exists() { Some(logo.as_path()) } else { None };
+            let options = default_pdf_options(logo_path);
+            let content = render_pdf(&bundle, &evaluation, &options)?;
+            std::fs::write(&path, content)?;
+        }
+    }
+
+    eprintln!("Report written to {}", path.display());
 
     Ok(())
 }

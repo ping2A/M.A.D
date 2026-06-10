@@ -1,42 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PillarId {
-    CybersecurityDlp,
-    Dfir,
-    PlatformOs,
-}
+/// Stable identifier for a criteria group (pillar).
+pub type PillarId = String;
 
-impl PillarId {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::CybersecurityDlp => "cybersecurity_dlp",
-            Self::Dfir => "dfir",
-            Self::PlatformOs => "platform_os",
-        }
+pub mod builtin {
+    pub const CYBERSECURITY_DLP: &str = "cybersecurity_dlp";
+    pub const DFIR: &str = "dfir";
+    pub const PLATFORM_OS: &str = "platform_os";
+
+    pub fn all() -> &'static [&'static str] {
+        &[CYBERSECURITY_DLP, DFIR, PLATFORM_OS]
     }
 
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::CybersecurityDlp => "Cybersecurity & Data Loss Prevention",
-            Self::Dfir => "Digital Forensics & Incident Response",
-            Self::PlatformOs => "Platform & OS Native Support",
-        }
-    }
-
-    pub fn all() -> &'static [PillarId] {
-        &[
-            PillarId::CybersecurityDlp,
-            PillarId::Dfir,
-            PillarId::PlatformOs,
-        ]
-    }
-}
-
-impl std::fmt::Display for PillarId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.display_name())
+    pub fn is_builtin(id: &str) -> bool {
+        matches!(id, CYBERSECURITY_DLP | DFIR | PLATFORM_OS)
     }
 }
 
