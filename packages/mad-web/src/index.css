@@ -1,0 +1,43 @@
+:root {
+  --mad-navy: #0a1628;
+  --mad-navy-light: #132238;
+  --mad-blue: #1e3a5f;
+  --mad-cyan: #00b4d8;
+  --mad-cyan-dim: #0096b4;
+  --mad-silver: #c0c8d4;
+  --mad-bg: #e8eaed;
+  --mad-text: #1a2332;
+  --mad-text-muted: #5a6578;
+  --mad-critical: #dc3545;
+  --mad-high: #fd7e14;
+  --mad-medium: #ffc107;
+  --mad-compliant: #28a745;
+  --mad-partial: #ffc107;
+  --mad-gap: #dc3545;
+  --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Fira Code", ui-monospace, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--mad-text);
+  background: var(--mad-bg);
+  background-image:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.02) 1px, transparent 1px),
+    linear-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px);
+  background-size: 40px 40px;
+  line-height: 1.5;
+}

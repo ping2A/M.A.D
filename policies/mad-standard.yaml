@@ -1,0 +1,181 @@
+manifest:
+  version: "1.0.0"
+  name: "Operation M.A.D. MDM Evaluation Standard"
+  description: >
+    Evaluation-only standard for mobile MDM solutions (iOS and Android).
+    Used to assess vendor capabilities against Cybersecurity, DFIR, and
+    Platform pillars before procurement. Does not deploy or enforce policies.
+
+pillars:
+  - id: cybersecurity_dlp
+    name: "Cybersecurity & Data Loss Prevention"
+    description: >
+      Enforcement of hardware-backed containerization, Zero Trust conditional
+      access via Identity Providers, and automated detection and remediation
+      of OS compromise (jailbreak/rooting).
+    requirements:
+      - id: dlp-001
+        title: "Hardware-backed work/personal containerization"
+        description: >
+          MDM must enforce hardware-backed separation of corporate and personal
+          data using platform-native containers (iOS Managed Apps / Android Work Profile).
+        severity: critical
+        platforms: [ios, android]
+        tags: [containerization, dlp]
+        evaluation_method: >
+          Deploy test devices with Work Profile (Android) and User Enrollment /
+          Managed Apps (iOS). Attempt cross-container data exfiltration via clipboard,
+          file share, and screenshot. Verify encryption keys are hardware-bound (TEE/Secure Enclave).
+        technical_criteria: >
+          Android: Android Enterprise Work Profile, Device Policy Controller (DPC),
+          android.app.admin.DevicePolicyManager. iOS: Managed Apps, per-app VPN,
+          NSFileProtectionComplete, MDM ManagedOpenIn restrictions.
+
+      - id: dlp-002
+        title: "IdP integration for Zero Trust conditional access"
+        description: >
+          Integration with corporate Identity Providers (Entra ID, Okta, etc.)
+          for device compliance-based conditional access policies.
+        severity: critical
+        platforms: [ios, android]
+        tags: [zero-trust, idp, conditional-access]
+        evaluation_method: >
+          Configure IdP device-compliance conditional access rule. Enroll compliant
+          and non-compliant test devices. Verify access is granted/denied to corporate
+          resources (M365, internal apps) based on MDM-reported compliance state.
+        technical_criteria: >
+          Microsoft Graph deviceManagement API, Okta Device Access, SAML/OIDC device
+          claims, compliance policy payloads (jailbreak detection, OS version, encryption status).
+
+      - id: dlp-003
+        title: "OS compromise detection and automated remediation"
+        description: >
+          Immediate detection of jailbreak/rooting with automated remediation
+          actions (quarantine, wipe corporate data, block access).
+        severity: critical
+        platforms: [ios, android]
+        tags: [jailbreak, root, remediation]
+        evaluation_method: >
+          Run rooted/jailbroken device against compliance policy. Measure time-to-detect
+          and verify automated action (selective wipe, full wipe, or access block) triggers
+          without manual admin intervention.
+        technical_criteria: >
+          iOS: jailbreak detection via MDM compliance (supervised), SafetyNet/DCIM on
+          Android, RootBeer API signals, automated remediation via WipeDevice or
+          retire action via Graph API / vendor REST.
+
+  - id: dfir
+    name: "Digital Forensics & Incident Response"
+    description: >
+      Remote network isolation preserving volatile memory, non-destructive
+      triage without user alerting, and direct API streaming of audit logs
+      to corporate SIEM.
+    requirements:
+      - id: dfir-001
+        title: "Remote network isolation with volatile memory preservation"
+        description: >
+          Ability to perform remote network isolation while preserving volatile
+          memory for forensic analysis during incident response.
+        severity: critical
+        platforms: [ios, android]
+        tags: [isolation, forensics, volatile-memory]
+        evaluation_method: >
+          Trigger network isolation on an active test device running foreground apps.
+          Verify TCP/UDP connectivity is blocked while device remains powered on and
+          RAM contents are not flushed (no reboot, no wipe). Confirm isolation is
+          reversible for forensic imaging.
+        technical_criteria: >
+          Per-app VPN block, firewall rules via MDM network payload (iOS), Android
+          always-on VPN with block mode, or vendor-specific "lockdown" API. Must not
+          invoke RebootDevice or EraseDevice commands.
+
+      - id: dfir-002
+        title: "Non-destructive silent triage"
+        description: >
+          Pull system logs, app inventories, and device telemetry without
+          alerting or disrupting the end user.
+        severity: high
+        platforms: [ios, android]
+        tags: [triage, logs, silent]
+        evaluation_method: >
+          Initiate remote log collection and app inventory pull on a test device.
+          Confirm no user-visible notification, no UI interruption, and no reboot.
+          Validate log completeness (syslog, crash logs, installed app list).
+        technical_criteria: >
+          iOS: MDM log stream (supervised), diagnostic log retrieval. Android:
+          bugreport via Device Owner, app inventory via ApplicationReport API.
+          Operations must use background MDM channel, not user-facing agent prompts.
+
+      - id: dfir-003
+        title: "SIEM audit log streaming API"
+        description: >
+          Direct API streaming of administrative audit logs and device telemetry
+          to corporate SIEM platforms (Splunk, Sentinel, etc.).
+        severity: high
+        platforms: [ios, android]
+        tags: [siem, audit, api]
+        evaluation_method: >
+          Enable audit log export to test SIEM endpoint. Perform admin actions
+          (policy change, device wipe, enrollment) and verify events arrive via
+          API/webhook within defined SLA (< 5 min). Confirm field mapping to CEF/ECS.
+        technical_criteria: >
+          REST API or syslog feed for admin audit events, device compliance changes,
+          enrollment events. Must support Splunk HEC, Azure Sentinel Data Connector,
+          or generic HTTPS webhook with structured JSON.
+
+  - id: platform_os
+    name: "Platform & OS Native Support"
+    description: >
+      Full support for Apple Business Manager with iOS Supervised Mode, and
+      Android Enterprise (Work Profile, COBO, Dedicated Kiosk) with OEMConfig.
+    requirements:
+      - id: plat-001
+        title: "Apple Business Manager and iOS Supervised Mode"
+        description: >
+          Full enrollment and management via ABM/ADE with complete Supervised
+          Mode policy enforcement capabilities.
+        severity: critical
+        platforms: [ios]
+        tags: [abm, supervised, apple]
+        evaluation_method: >
+          Enroll device via ABM Automated Device Enrollment (ADE). Verify
+          supervision flag, DEP profile assignment, and ability to push all
+          supervised-only restrictions (app lock, silent install, kiosk, log stream).
+        technical_criteria: >
+          Apple Business Manager API, MDM DEP enrollment, IsSupervised device
+          property, configuration profiles with PayloadType restrictions only
+          available in supervised mode (e.g., com.apple.applicationaccess).
+
+      - id: plat-002
+        title: "Android Enterprise deployment models"
+        description: >
+          Support for Work Profile, COBO (Corporate-Owned Business Only), and
+          Dedicated Kiosk deployment modes.
+        severity: critical
+        platforms: [android]
+        tags: [android-enterprise, work-profile, cobo, kiosk]
+        evaluation_method: >
+          Enroll three test devices: BYOD Work Profile, COBO Device Owner, and
+          Dedicated kiosk (COSU). Verify policy scoping, app deployment, and
+          management capability differ correctly per deployment mode.
+        technical_criteria: >
+          Android Enterprise zero-touch / QR / NFC enrollment, Device Owner provisioning,
+          managed configurations, COSU kiosk mode via lock task packages,
+          android.management API (Google AMAPI) or vendor EMM API.
+
+      - id: plat-003
+        title: "OEMConfig support"
+        description: >
+          Native OEMConfig integration for device-specific policy enforcement
+          across major Android OEMs (Samsung Knox, Zebra, etc.).
+        severity: high
+        platforms: [android]
+        tags: [oemconfig, knox, android]
+        evaluation_method: >
+          Deploy OEMConfig managed configuration app on Samsung and Zebra test
+          devices. Push OEM-specific restrictions (Knox container, Zebra MX) via
+          MDM and verify enforcement at hardware/firmware level.
+        technical_criteria: >
+          Android Enterprise managed configurations (RESTRICTED_KEYSET),
+          Samsung Knox MDM SDK policies, Zebra OEMConfig XML schema,
+          managed app config key-value pairs pushed via MDM ApplicationPolicy.

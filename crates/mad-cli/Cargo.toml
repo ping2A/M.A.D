@@ -1,0 +1,19 @@
+[package]
+name = "mad-cli"
+description = "CLI for evaluating MDM vendors against Operation M.A.D. policy pillars"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "mad"
+path = "src/main.rs"
+
+[dependencies]
+mad-core.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
