@@ -312,6 +312,14 @@ export interface Translations {
     title: string;
     intro: string;
     vendor: string;
+    stream: string;
+    streamName: string;
+    defaultStreamName: string;
+    newStreamName: string;
+    newStream: string;
+    deleteStream: string;
+    deleteStreamConfirm: string;
+    deleteStreamDisabled: string;
     noVendors: string;
     saving: string;
     inspector: string;

@@ -1,14 +1,22 @@
 mod html;
 mod pdf;
+pub mod vsm;
+
+use std::collections::HashMap;
 
 use crate::evaluation::EvaluationReport;
 use crate::policy::PolicyBundle;
+use crate::value_stream::ValueStreamEntry;
 
 pub use html::{load_logo_data_uri, render_html, HtmlReportOptions};
 pub use pdf::{render_pdf, PdfReportOptions};
 
 /// Renders a detailed technical evaluation report in Markdown.
-pub fn render_markdown(bundle: &PolicyBundle, evaluation: &EvaluationReport) -> String {
+pub fn render_markdown(
+    bundle: &PolicyBundle,
+    evaluation: &EvaluationReport,
+    value_streams: &HashMap<String, Vec<ValueStreamEntry>>,
+) -> String {
     let mut out = String::new();
 
     out.push_str("# MAD — Mobile Assessment & Defense — Technical Evaluation Report\n\n");
@@ -143,6 +151,25 @@ VendorAssessment (per requirement status)  →  EvaluationReport\n\
                 out.push_str(&format!("- {gap}\n"));
             }
             out.push('\n');
+        }
+    }
+
+    if vsm::any_value_streams(value_streams) {
+        out.push_str("---\n\n");
+        out.push_str("## 5. Value Stream Maps\n\n");
+        out.push_str(
+            "Process flow diagrams captured during vendor evaluation. Durations are cumulative \
+             lead times along each flow.\n\n",
+        );
+        for result in &evaluation.vendors {
+            if let Some(entries) = value_streams.get(&result.vendor.id.0) {
+                for entry in entries {
+                    if vsm::map_has_content(&entry.map) {
+                        let title = format!("{} — {}", result.vendor.name, entry.name);
+                        out.push_str(&vsm::render_vsm_markdown_section(&title, &entry.map));
+                    }
+                }
+            }
         }
     }
 

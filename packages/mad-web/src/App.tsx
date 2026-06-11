@@ -51,6 +51,8 @@ export default function App() {
     updateScoring,
     updateProcurement,
     updateValueStream,
+    createValueStream,
+    deleteValueStream,
     valueStreams,
     exportWorkspace,
     exportVendors,
@@ -233,6 +235,8 @@ export default function App() {
                 valueStreams={valueStreams}
                 saving={saving}
                 onSave={updateValueStream}
+                onCreate={createValueStream}
+                onDelete={deleteValueStream}
               />
             )}
 

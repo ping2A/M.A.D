@@ -6,7 +6,7 @@ use crate::pillar::{builtin, Pillar, Requirement, RequirementSeverity};
 use crate::policy::PolicyBundle;
 use crate::pricing::ProcurementConfig;
 use crate::scoring::ScoringConfig;
-use crate::value_stream::ValueStreamMap;
+use crate::value_stream::{deserialize_vendor_value_streams, ValueStreamEntry, ValueStreamMap};
 use crate::vendor::{Vendor, VendorAssessment, VendorId};
 use crate::vendor_set::{
     sanitize_assessment, VendorImportMode, VendorImportResult, VendorSetFile,
@@ -23,9 +23,9 @@ pub struct EvaluationWorkspace {
     pub vendors: Vec<Vendor>,
     /// vendor_id → assessment
     pub assessments: HashMap<String, VendorAssessment>,
-    /// vendor_id → value stream map
-    #[serde(default)]
-    pub value_streams: HashMap<String, ValueStreamMap>,
+    /// vendor_id → value stream maps
+    #[serde(default, deserialize_with = "deserialize_vendor_value_streams")]
+    pub value_streams: HashMap<String, Vec<ValueStreamEntry>>,
 }
 
 impl EvaluationWorkspace {
@@ -48,23 +48,86 @@ impl EvaluationWorkspace {
         }
     }
 
-    pub fn get_value_stream(&self, vendor_id: &str) -> ValueStreamMap {
+    pub fn value_streams_for(&self, vendor_id: &str) -> &[ValueStreamEntry] {
         self.value_streams
             .get(vendor_id)
-            .cloned()
-            .unwrap_or_default()
+            .map(|entries| entries.as_slice())
+            .unwrap_or(&[])
     }
 
-    pub fn set_value_stream(&mut self, vendor_id: &str, map: ValueStreamMap) -> bool {
+    pub fn get_value_stream_entry(&self, vendor_id: &str, stream_id: &str) -> Option<ValueStreamEntry> {
+        self.value_streams
+            .get(vendor_id)?
+            .iter()
+            .find(|entry| entry.id == stream_id)
+            .cloned()
+    }
+
+    pub fn create_value_stream(&mut self, vendor_id: &str, name: impl Into<String>) -> Option<ValueStreamEntry> {
+        if !self.vendors.iter().any(|v| v.id.0 == vendor_id) {
+            return None;
+        }
+        let entry = ValueStreamEntry::new(name);
+        self.value_streams
+            .entry(vendor_id.to_string())
+            .or_default()
+            .push(entry.clone());
+        Some(entry)
+    }
+
+    pub fn upsert_value_stream_entry(
+        &mut self,
+        vendor_id: &str,
+        entry: ValueStreamEntry,
+    ) -> bool {
         if !self.vendors.iter().any(|v| v.id.0 == vendor_id) {
             return false;
         }
-        if map.nodes.is_empty() && map.edges.is_empty() && map.messages.is_empty() {
-            self.value_streams.remove(vendor_id);
+        if entry.is_empty() {
+            return self.remove_value_stream(vendor_id, &entry.id);
+        }
+        let streams = self.value_streams.entry(vendor_id.to_string()).or_default();
+        if let Some(existing) = streams.iter_mut().find(|e| e.id == entry.id) {
+            *existing = entry;
         } else {
-            self.value_streams.insert(vendor_id.to_string(), map);
+            streams.push(entry);
         }
         true
+    }
+
+    /// Legacy single-map update (uses id `default`).
+    pub fn set_value_stream(&mut self, vendor_id: &str, map: ValueStreamMap) -> bool {
+        let stream_id = self
+            .value_streams
+            .get(vendor_id)
+            .and_then(|entries| entries.first().map(|e| e.id.clone()))
+            .unwrap_or_else(|| "default".into());
+        let name = self
+            .value_streams
+            .get(vendor_id)
+            .and_then(|entries| entries.first().map(|e| e.name.clone()))
+            .unwrap_or_else(|| "Value stream".into());
+        self.upsert_value_stream_entry(
+            vendor_id,
+            ValueStreamEntry {
+                id: stream_id,
+                name,
+                map,
+            },
+        )
+    }
+
+    pub fn remove_value_stream(&mut self, vendor_id: &str, stream_id: &str) -> bool {
+        let Some(streams) = self.value_streams.get_mut(vendor_id) else {
+            return false;
+        };
+        let before = streams.len();
+        streams.retain(|entry| entry.id != stream_id);
+        let removed = before != streams.len();
+        if streams.is_empty() {
+            self.value_streams.remove(vendor_id);
+        }
+        removed
     }
 
     pub fn total_requirements(&self) -> usize {

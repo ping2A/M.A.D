@@ -15,7 +15,9 @@ import {
   setAssessment,
   updatePillar,
   updateProcurement,
-  updateValueStream,
+  createValueStream,
+  deleteValueStream,
+  updateValueStreamEntry,
   updateRequirement,
   updateScoring,
   updateVendor,
@@ -141,18 +143,47 @@ export function useEvaluation() {
     await withSave(() => updateProcurement(procurement).then(() => undefined));
   };
 
-  const handleUpdateValueStream = async (vendorId: string, map: ValueStreamMap) => {
+  const syncValueStreams = (value_streams: PolicySummary["value_streams"]) => {
+    setPolicy((prev) => (prev ? { ...prev, value_streams } : prev));
+  };
+
+  const handleUpdateValueStream = async (
+    vendorId: string,
+    streamId: string,
+    name: string,
+    map: ValueStreamMap,
+  ) => {
     setSaving(true);
     try {
-      await updateValueStream(vendorId, map);
-      setPolicy((prev) =>
-        prev
-          ? {
-              ...prev,
-              value_streams: { ...prev.value_streams, [vendorId]: map },
-            }
-          : prev,
-      );
+      const ws = await updateValueStreamEntry(vendorId, streamId, name, map);
+      syncValueStreams(ws.value_streams ?? {});
+    } catch (err) {
+      await refresh();
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateValueStream = async (vendorId: string, name: string) => {
+    setSaving(true);
+    try {
+      const ws = await createValueStream(vendorId, name);
+      syncValueStreams(ws.value_streams ?? {});
+      return ws;
+    } catch (err) {
+      await refresh();
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteValueStream = async (vendorId: string, streamId: string) => {
+    setSaving(true);
+    try {
+      const ws = await deleteValueStream(vendorId, streamId);
+      syncValueStreams(ws.value_streams ?? {});
     } catch (err) {
       await refresh();
       throw err;
@@ -220,6 +251,8 @@ export function useEvaluation() {
     updateScoring: handleUpdateScoring,
     updateProcurement: handleUpdateProcurement,
     updateValueStream: handleUpdateValueStream,
+    createValueStream: handleCreateValueStream,
+    deleteValueStream: handleDeleteValueStream,
     valueStreams: policy?.value_streams ?? {},
     exportWorkspace: handleExportWorkspace,
     exportVendors: handleExportVendors,

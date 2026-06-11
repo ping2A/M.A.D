@@ -54,7 +54,7 @@ export interface PolicySummary {
   pillars: Pillar[];
   scoring: ScoringConfig;
   procurement: ProcurementConfig;
-  value_streams: Record<string, ValueStreamMap>;
+  value_streams: Record<string, ValueStreamEntry[]>;
 }
 
 export type BillingPeriod = "monthly" | "annual";
@@ -149,6 +149,11 @@ export interface ValueStreamMap {
   flow_types?: VsmFlowTypeDef[];
 }
 
+export interface ValueStreamEntry extends ValueStreamMap {
+  id: string;
+  name: string;
+}
+
 export interface EvaluationWorkspace {
   policy_version: string;
   scoring: ScoringConfig;
@@ -156,7 +161,7 @@ export interface EvaluationWorkspace {
   pillars: Pillar[];
   vendors: Vendor[];
   assessments: Record<string, VendorAssessment>;
-  value_streams?: Record<string, ValueStreamMap>;
+  value_streams?: Record<string, ValueStreamEntry[]>;
 }
 
 export interface VendorSetFile {

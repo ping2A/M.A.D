@@ -1337,7 +1337,9 @@ body {
   color: var(--mad-text-muted);
 }
 
-.vsm-vendor-picker select {
+.vsm-vendor-picker select,
+.vsm-stream-picker select,
+.vsm-stream-name input {
   min-width: 200px;
   padding: 0.5rem 0.65rem;
   border: 1px solid var(--mad-border);
@@ -1347,6 +1349,32 @@ body {
   text-transform: none;
   letter-spacing: normal;
   font-weight: 400;
+}
+
+.vsm-toolbar-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+}
+
+.vsm-stream-picker,
+.vsm-stream-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--mad-text-muted);
+}
+
+.vsm-stream-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-bottom: 0.15rem;
 }
 
 .vsm-layout {

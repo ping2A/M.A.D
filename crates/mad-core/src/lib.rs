@@ -21,7 +21,9 @@ pub use report::{
     render_pdf, HtmlReportOptions, PdfReportOptions,
 };
 pub use scoring::ScoringConfig;
-pub use value_stream::{ValueStreamMap, VsmEdge, VsmMessage, VsmNode, VsmNodeType};
+pub use value_stream::{
+    ValueStreamEntry, ValueStreamMap, VsmEdge, VsmMessage, VsmNode, VsmNodeType,
+};
 pub use vendor::{
     ComplianceStatus, RequirementAssessment, Vendor, VendorAssessment, VendorId, VendorScore,
 };

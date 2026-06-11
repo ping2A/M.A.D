@@ -214,17 +214,43 @@ export function updateScoring(scoring: ScoringConfig): Promise<EvaluationWorkspa
   });
 }
 
-export function updateValueStream(
+export function createValueStream(
   vendorId: string,
+  name: string,
+): Promise<EvaluationWorkspace> {
+  return fetchJson<EvaluationWorkspace>(
+    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/value-streams`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export function updateValueStreamEntry(
+  vendorId: string,
+  streamId: string,
+  name: string,
   valueStream: ValueStreamMap,
 ): Promise<EvaluationWorkspace> {
   return fetchJson<EvaluationWorkspace>(
-    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/value-stream`,
+    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/value-streams/${encodeURIComponent(streamId)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value_stream: valueStream }),
+      body: JSON.stringify({ name, ...valueStream }),
     },
+  );
+}
+
+export function deleteValueStream(
+  vendorId: string,
+  streamId: string,
+): Promise<EvaluationWorkspace> {
+  return fetchJson<EvaluationWorkspace>(
+    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/value-streams/${encodeURIComponent(streamId)}`,
+    { method: "DELETE" },
   );
 }
 

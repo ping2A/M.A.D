@@ -357,8 +357,16 @@ export const fr: Translations = {
   vsm: {
     title: "Cartographie de la chaîne de valeur",
     intro:
-      "Modélisez comment chaque éditeur MDM s'intègre à votre processus — étapes, inventaire, délais, temps de cycle et flux matière / information / électronique. Une carte par éditeur, incluse dans l'export workspace.",
+      "Modélisez comment chaque éditeur MDM s'intègre à votre processus — étapes, inventaire, délais, temps de cycle et flux matière / information / électronique. Plusieurs cartes par éditeur ; toutes sont incluses dans les rapports et l'export workspace.",
     vendor: "Éditeur",
+    stream: "Carte",
+    streamName: "Nom de la carte",
+    defaultStreamName: "Chaîne de valeur 1",
+    newStreamName: "Chaîne de valeur {n}",
+    newStream: "+ Nouvelle carte",
+    deleteStream: "Supprimer la carte",
+    deleteStreamConfirm: "Supprimer cette carte de chaîne de valeur ? Cette action est irréversible.",
+    deleteStreamDisabled: "Au moins une carte est requise par éditeur",
     noVendors: "Ajoutez des éditeurs dans l'onglet Éditeurs pour créer des cartographies.",
     saving: "Enregistrement…",
     inspector: "Inspecteur",

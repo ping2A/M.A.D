@@ -9,13 +9,14 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
     response::IntoResponse,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use mad_core::{
     default_html_options, default_pdf_options, render_html, render_pdf, Evaluator,
     parse_workspace_import, EvaluationWorkspace, Pillar, PolicyBundle, ProcurementConfig,
-    Requirement, ScoringConfig, ValueStreamMap, Vendor, VendorImportMode, VendorImportResult,
+    Requirement, ScoringConfig, ValueStreamEntry, ValueStreamMap, Vendor, VendorImportMode,
+    VendorImportResult,
     VendorSetFile, WorkspaceImportResult,
 };
 use serde::{Deserialize, Serialize};
@@ -44,7 +45,7 @@ struct PolicySummary {
     pillars: Vec<mad_core::Pillar>,
     scoring: ScoringConfig,
     procurement: ProcurementConfig,
-    value_streams: HashMap<String, ValueStreamMap>,
+    value_streams: HashMap<String, Vec<ValueStreamEntry>>,
 }
 
 #[derive(Deserialize)]
@@ -103,6 +104,18 @@ struct UpdateProcurementBody {
 #[derive(Deserialize)]
 struct UpdateValueStreamBody {
     value_stream: ValueStreamMap,
+}
+
+#[derive(Deserialize)]
+struct CreateValueStreamBody {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct UpsertValueStreamBody {
+    name: String,
+    #[serde(flatten)]
+    map: ValueStreamMap,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +194,14 @@ async fn main() {
         .route(
             "/api/workspace/vendors/{id}/value-stream",
             put(update_value_stream),
+        )
+        .route(
+            "/api/workspace/vendors/{id}/value-streams",
+            post(create_value_stream),
+        )
+        .route(
+            "/api/workspace/vendors/{id}/value-streams/{stream_id}",
+            put(update_value_stream_entry).delete(delete_value_stream_entry),
         )
         .route("/api/workspace/assessments", put(set_assessment))
         .route("/api/workspace/scoring", put(update_scoring))
@@ -561,6 +582,60 @@ async fn update_value_stream(
     Ok(Json(ws))
 }
 
+async fn create_value_stream(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<CreateValueStreamBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.vendors.iter().any(|v| v.id.0 == id) {
+        return Ok(Json(workspace));
+    }
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.create_value_stream(&id, body.name);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn update_value_stream_entry(
+    State(state): State<Arc<AppState>>,
+    Path((id, stream_id)): Path<(String, String)>,
+    Json(body): Json<UpsertValueStreamBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.vendors.iter().any(|v| v.id.0 == id) {
+        return Ok(Json(workspace));
+    }
+    let entry = ValueStreamEntry {
+        id: stream_id,
+        name: body.name,
+        map: body.map,
+    };
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.upsert_value_stream_entry(&id, entry);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn delete_value_stream_entry(
+    State(state): State<Arc<AppState>>,
+    Path((id, stream_id)): Path<(String, String)>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.remove_value_stream(&id, &stream_id);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
 async fn update_procurement(
     State(state): State<Arc<AppState>>,
     Json(body): Json<UpdateProcurementBody>,
@@ -591,7 +666,7 @@ async fn report_html(State(state): State<Arc<AppState>>) -> Result<impl IntoResp
         None
     };
     let options = default_html_options(logo_path);
-    let html = render_html(&bundle, &evaluation, &options);
+    let html = render_html(&bundle, &evaluation, &workspace.value_streams, &options);
 
     Ok((
         [
@@ -615,7 +690,7 @@ async fn report_pdf(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
         None
     };
     let options = default_pdf_options(logo_path);
-    let pdf = render_pdf(&bundle, &evaluation, &options).map_err(|e| {
+    let pdf = render_pdf(&bundle, &evaluation, &workspace.value_streams, &options).map_err(|e| {
         mad_core::MadError::Io {
             path: PathBuf::from("report.pdf"),
             source: std::io::Error::new(std::io::ErrorKind::Other, e),

@@ -8,9 +8,13 @@ use printpdf::{
     PdfPageIndex, Point, Polygon, Rgb,
 };
 
+use std::collections::HashMap;
+
 use crate::evaluation::{EvaluationReport, EvaluationResult};
 use crate::pillar::RequirementSeverity;
 use crate::policy::PolicyBundle;
+use crate::report::vsm;
+use crate::value_stream::{ValueStreamEntry, ValueStreamMap};
 use crate::vendor::ComplianceStatus;
 
 /// Options for PDF report generation.
@@ -279,6 +283,7 @@ impl PdfLayout {
 pub fn render_pdf(
     bundle: &PolicyBundle,
     evaluation: &EvaluationReport,
+    value_streams: &HashMap<String, Vec<ValueStreamEntry>>,
     options: &PdfReportOptions,
 ) -> Result<Vec<u8>, String> {
     let (doc, page1, layer1) =
@@ -895,6 +900,27 @@ pub fn render_pdf(
         layout.y_top = card_y + card_h + 5.0;
     }
 
+    if vsm::any_value_streams(value_streams) {
+        layout.section_heading("5. Value Stream Maps");
+        layout.paragraph(
+            "Process flows documented per vendor: steps, flow types, durations, and authors.",
+        );
+        layout.advance(2.0);
+
+        for result in &evaluation.vendors {
+            let Some(entries) = value_streams.get(&result.vendor.id.0) else {
+                continue;
+            };
+            for entry in entries {
+                if !vsm::map_has_content(&entry.map) {
+                    continue;
+                }
+                let title = format!("{} — {}", result.vendor.name, entry.name);
+                append_vsm_vendor_pdf(&mut layout, &title, &entry.map);
+            }
+        }
+    }
+
     // Footer
     layout.advance(4.0);
     layout.stroke_line(MARGIN_MM, layout.y_top, MARGIN_MM + CONTENT_W_MM, colors::bar_bg(), 0.4);
@@ -926,6 +952,94 @@ fn rect_points(x: f32, y_top: f32, w: f32, h: f32) -> Vec<(Point, bool)> {
         (Point::new(Mm(x + w), Mm(y_pdf_top)), false),
         (Point::new(Mm(x), Mm(y_pdf_top)), false),
     ]
+}
+
+fn append_vsm_vendor_pdf(layout: &mut PdfLayout, vendor_name: &str, map: &ValueStreamMap) {
+    let flow_types = vsm::resolve_flow_types(map);
+    let timeline = vsm::build_timeline(map);
+
+    layout.subheading(vendor_name);
+    layout.paragraph(&format!(
+        "{} nodes · {} flows{}",
+        map.nodes.len(),
+        map.edges.len(),
+        if timeline.stats.total_minutes > 0.0 {
+            format!(
+                " · {} total · {}% timed",
+                vsm::format_duration(timeline.stats.total_minutes, false),
+                timeline.stats.coverage_percent
+            )
+        } else {
+            String::new()
+        }
+    ));
+
+    if !timeline.segments.is_empty() {
+        layout.text_at(MARGIN_MM, layout.y_top, "Process timeline", 9.0, true, colors::navy());
+        layout.advance(5.0);
+        let row_h = 5.5;
+        for segment in &timeline.segments {
+            layout.ensure(row_h);
+            let ft = vsm::flow_type_config(&segment.edge_type, &flow_types);
+            let duration = if segment.duration_minutes > 0.0 {
+                vsm::format_duration(segment.duration_minutes, true)
+            } else {
+                "—".into()
+            };
+            let line = format!(
+                "{} → {} · {} · {}",
+                truncate(&segment.from_label, 18),
+                truncate(&segment.to_label, 18),
+                truncate(&ft.label, 12),
+                duration
+            );
+            layout.text_at(MARGIN_MM + 2.0, layout.y_top + 4.0, &line, 7.5, false, colors::text());
+            layout.advance(row_h);
+        }
+
+        if timeline.stats.total_minutes > 0.0 {
+            layout.advance(2.0);
+            layout.text_at(MARGIN_MM, layout.y_top, "Gantt (relative)", 8.5, true, colors::navy());
+            layout.advance(5.0);
+            let bar_h = 4.5;
+            let track_w = CONTENT_W_MM - 40.0;
+            for segment in &timeline.segments {
+                if segment.duration_minutes <= 0.0 {
+                    continue;
+                }
+                layout.ensure(bar_h + 1.0);
+                let row_y = layout.y_top;
+                let label = format!(
+                    "{}→{}",
+                    truncate(&segment.from_label, 10),
+                    truncate(&segment.to_label, 10)
+                );
+                layout.text_at(MARGIN_MM, row_y + 3.8, &label, 6.5, false, colors::muted());
+                let track_x = MARGIN_MM + 38.0;
+                layout.fill_rect(track_x, row_y, track_w, bar_h, colors::bar_bg());
+                let fill_w = track_w * (segment.percent_of_total as f32 / 100.0).max(0.02);
+                let ft = vsm::flow_type_config(&segment.edge_type, &flow_types);
+                let bar_color = vsm::hex_to_rgb(&ft.color)
+                    .map(|(r, g, b)| Rgb::new(r, g, b, None))
+                    .unwrap_or_else(colors::cyan);
+                layout.fill_rect(track_x, row_y, fill_w, bar_h, bar_color);
+                layout.advance(bar_h + 1.5);
+            }
+        }
+    }
+
+    if !map.messages.is_empty() {
+        layout.advance(2.0);
+        layout.text_at(MARGIN_MM, layout.y_top, "Messages", 9.0, true, colors::navy());
+        layout.advance(5.0);
+        for msg in &map.messages {
+            for line in wrap_text(&format!("• {}", msg.text.trim()), 95) {
+                layout.paragraph(&line);
+            }
+        }
+    }
+
+    layout.advance(4.0);
 }
 
 fn vendor_status_totals(result: &EvaluationResult) -> (usize, usize, usize, usize) {
@@ -1010,6 +1124,8 @@ fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::evaluation::{Evaluator, sample_vendors};
     use crate::policy::PolicyBundle;
@@ -1029,7 +1145,7 @@ mod tests {
         let evaluation = evaluator.evaluate().expect("eval");
         let logo = std::path::Path::new("assets/logo.png");
         let options = default_pdf_options(logo.exists().then_some(logo));
-        let pdf = render_pdf(&bundle, &evaluation, &options).expect("pdf");
+        let pdf = render_pdf(&bundle, &evaluation, &HashMap::new(), &options).expect("pdf");
         assert!(pdf.starts_with(b"%PDF"));
         assert!(pdf.len() > 8_000);
     }

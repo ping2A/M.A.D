@@ -1,5 +1,6 @@
 import { MarkerType, type Edge, type Node } from "@xyflow/react";
 import type {
+  ValueStreamEntry,
   ValueStreamMap,
   VsmEdge,
   VsmFlowTypeDef,
@@ -675,6 +676,29 @@ export const EMPTY_VALUE_STREAM: ValueStreamMap = {
 
 export function emptyValueStream(): ValueStreamMap {
   return EMPTY_VALUE_STREAM;
+}
+
+export function entryToMap(entry: ValueStreamEntry): ValueStreamMap {
+  return {
+    nodes: entry.nodes,
+    edges: entry.edges,
+    messages: entry.messages,
+    flow_types: entry.flow_types,
+  };
+}
+
+export function mapToEntryBody(name: string, map: ValueStreamMap): Omit<ValueStreamEntry, "id"> {
+  return {
+    name,
+    nodes: map.nodes,
+    edges: map.edges,
+    messages: map.messages,
+    flow_types: map.flow_types,
+  };
+}
+
+export function newVsmId(): string {
+  return `vsm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 export function valueStreamMapsEqual(a: ValueStreamMap, b: ValueStreamMap): boolean {

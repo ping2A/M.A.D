@@ -18,6 +18,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocale } from "../i18n/LocaleContext";
 import type {
   EvaluationReport,
+  EvaluationWorkspace,
+  ValueStreamEntry,
   ValueStreamMap,
   Vendor,
   VsmFlowTypeDef,
@@ -29,6 +31,7 @@ import {
   createVsmNode,
   DEFAULT_FLOW_TYPES,
   emptyValueStream,
+  entryToMap,
   flowToVsm,
   builtinFlowTypeDefault,
   isBuiltinFlowType,
@@ -52,9 +55,16 @@ import { VsmTimeline } from "./vsm/VsmTimeline";
 
 interface ValueStreamViewProps {
   evaluation: EvaluationReport;
-  valueStreams: Record<string, ValueStreamMap>;
+  valueStreams: Record<string, ValueStreamEntry[]>;
   saving?: boolean;
-  onSave: (vendorId: string, map: ValueStreamMap) => Promise<void>;
+  onSave: (
+    vendorId: string,
+    streamId: string,
+    name: string,
+    map: ValueStreamMap,
+  ) => Promise<void>;
+  onCreate: (vendorId: string, name: string) => Promise<EvaluationWorkspace>;
+  onDelete: (vendorId: string, streamId: string) => Promise<void>;
 }
 
 type InspectorTab = "properties" | "messages" | "legend";
@@ -995,10 +1005,21 @@ export function ValueStreamView({
   valueStreams,
   saving,
   onSave,
+  onCreate,
+  onDelete,
 }: ValueStreamViewProps) {
   const { t } = useLocale();
   const vendors = evaluation.vendors.map((v) => v.vendor);
   const [vendorId, setVendorId] = useState(vendors[0]?.id ?? "");
+  const [streamId, setStreamId] = useState("");
+  const [streamName, setStreamName] = useState("");
+  const ensuredVendorRef = useRef<string | null>(null);
+
+  const entries = vendorId ? (valueStreams[vendorId] ?? []) : [];
+  const entryIds = entries.map((entry) => entry.id).join(",");
+  const activeEntry = entries.find((entry) => entry.id === streamId);
+  const onCreateRef = useRef(onCreate);
+  onCreateRef.current = onCreate;
 
   useEffect(() => {
     if (vendors.length > 0 && !vendors.some((v) => v.id === vendorId)) {
@@ -1006,8 +1027,52 @@ export function ValueStreamView({
     }
   }, [vendors, vendorId]);
 
+  useEffect(() => {
+    if (!vendorId) return;
+
+    if (entries.length === 0) {
+      if (ensuredVendorRef.current === vendorId) return;
+      ensuredVendorRef.current = vendorId;
+      void onCreateRef.current(vendorId, t.vsm.defaultStreamName).then((ws) => {
+        const created = ws.value_streams?.[vendorId]?.at(-1);
+        if (created) setStreamId(created.id);
+      });
+      return;
+    }
+
+    ensuredVendorRef.current = vendorId;
+    if (!entries.some((entry) => entry.id === streamId)) {
+      setStreamId(entries[0].id);
+    }
+  }, [vendorId, entryIds, streamId, entries, t.vsm.defaultStreamName]);
+
+  useEffect(() => {
+    setStreamName(activeEntry?.name ?? "");
+  }, [activeEntry?.id, activeEntry?.name]);
+
   const vendor = vendors.find((v) => v.id === vendorId);
-  const map = vendorId ? (valueStreams[vendorId] ?? emptyValueStream()) : emptyValueStream();
+  const map = activeEntry ? entryToMap(activeEntry) : emptyValueStream();
+
+  const handleNewStream = async () => {
+    if (!vendorId) return;
+    const name = t.vsm.newStreamName.replace("{n}", String(entries.length + 1));
+    const ws = await onCreate(vendorId, name);
+    const created = ws.value_streams?.[vendorId]?.at(-1);
+    if (created) setStreamId(created.id);
+  };
+
+  const handleDeleteStream = async () => {
+    if (!vendorId || !streamId) return;
+    if (!window.confirm(t.vsm.deleteStreamConfirm)) return;
+    await onDelete(vendorId, streamId);
+    ensuredVendorRef.current = null;
+  };
+
+  const handleStreamNameBlur = () => {
+    const trimmed = streamName.trim();
+    if (!vendorId || !streamId || !trimmed || trimmed === activeEntry?.name) return;
+    void onSave(vendorId, streamId, trimmed, map);
+  };
 
   if (vendors.length === 0) {
     return (
@@ -1027,25 +1092,67 @@ export function ValueStreamView({
           <h2 className="section-title">{t.vsm.title}</h2>
           <p className="section-intro">{t.vsm.intro}</p>
         </div>
-        <label className="vsm-vendor-picker">
-          {t.vsm.vendor}
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-            {vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="vsm-toolbar-pickers">
+          <label className="vsm-vendor-picker">
+            {t.vsm.vendor}
+            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
+              {vendors.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {entries.length > 0 && (
+            <label className="vsm-stream-picker">
+              {t.vsm.stream}
+              <select value={streamId} onChange={(e) => setStreamId(e.target.value)}>
+                {entries.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="vsm-stream-name">
+            {t.vsm.streamName}
+            <input
+              value={streamName}
+              onChange={(e) => setStreamName(e.target.value)}
+              onBlur={handleStreamNameBlur}
+              placeholder={t.vsm.defaultStreamName}
+            />
+          </label>
+          <div className="vsm-stream-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => void handleNewStream()}
+              disabled={saving}
+            >
+              {t.vsm.newStream}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => void handleDeleteStream()}
+              disabled={saving || entries.length <= 1}
+              title={entries.length <= 1 ? t.vsm.deleteStreamDisabled : t.vsm.deleteStream}
+            >
+              {t.vsm.deleteStream}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {vendor && (
+      {vendor && streamId && (
         <ReactFlowProvider>
           <ValueStreamEditor
-            key={vendor.id}
+            key={`${vendor.id}-${streamId}`}
             vendor={vendor}
             initialMap={map}
-            onSave={(m) => onSave(vendor.id, m)}
+            onSave={(m) => onSave(vendor.id, streamId, streamName.trim() || activeEntry?.name || t.vsm.defaultStreamName, m)}
             saving={saving}
           />
         </ReactFlowProvider>

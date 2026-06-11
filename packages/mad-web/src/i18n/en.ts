@@ -352,8 +352,16 @@ export const en: Translations = {
   vsm: {
     title: "Value Stream Mapping",
     intro:
-      "Model how each MDM vendor fits your operational process — process steps, decisions, inventory, lead times, and material / information / electronic flows. Maps are saved per vendor and included in workspace export.",
+      "Model how each MDM vendor fits your operational process — process steps, decisions, inventory, lead times, and material / information / electronic flows. Attach multiple value stream maps per vendor; all maps are included in reports and workspace export.",
     vendor: "Vendor",
+    stream: "Map",
+    streamName: "Map name",
+    defaultStreamName: "Value stream 1",
+    newStreamName: "Value stream {n}",
+    newStream: "+ New map",
+    deleteStream: "Delete map",
+    deleteStreamConfirm: "Delete this value stream map? This cannot be undone.",
+    deleteStreamDisabled: "At least one map is required per vendor",
     noVendors: "Add vendors on the Vendors tab to create value stream maps.",
     saving: "Saving…",
     inspector: "Inspector",
