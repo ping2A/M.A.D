@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { useLocale } from "../i18n/LocaleContext";
-import { BUILTIN_PILLAR_IDS, type Pillar } from "../types";
+import { BUILTIN_PILLAR_IDS, type Pillar, type PillarId } from "../types";
+import { pillarIcon } from "../utils/pillarIcons";
 import { slugifyPillarId } from "../utils/suggestRequirementId";
 
 interface PillarGroupEditorProps {
   pillars: Pillar[];
+  selectedPillar: PillarId | "all";
+  onSelectPillar: (id: PillarId | "all") => void;
   onAdd: (id: string, name: string, description: string) => Promise<void>;
   onUpdate: (id: string, name: string, description: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -18,6 +21,8 @@ function isBuiltin(id: string): boolean {
 
 export function PillarGroupEditor({
   pillars,
+  selectedPillar,
+  onSelectPillar,
   onAdd,
   onUpdate,
   onDelete,
@@ -40,7 +45,8 @@ export function PillarGroupEditor({
     setMode("add");
   };
 
-  const openEdit = (pillar: Pillar) => {
+  const openEdit = (pillar: Pillar, e: React.MouseEvent) => {
+    e.stopPropagation();
     setEditId(pillar.id);
     setForm({
       id: pillar.id,
@@ -63,6 +69,7 @@ export function PillarGroupEditor({
       } else {
         const id = form.id.trim() || slugifyPillarId(name);
         await onAdd(id, name, description);
+        onSelectPillar(id);
       }
       resetForm();
     } finally {
@@ -73,13 +80,19 @@ export function PillarGroupEditor({
   const displayName = (pillar: Pillar) =>
     pillarLabel(pillar.id) !== pillar.id ? pillarLabel(pillar.id) : pillar.name;
 
+  const handleDelete = (pillar: Pillar, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirm(format(t.pillarGroups.confirmRemove, { id: pillar.id }))) {
+      onDelete(pillar.id);
+      if (selectedPillar === pillar.id) {
+        onSelectPillar("all");
+      }
+    }
+  };
+
   return (
-    <section className="pillar-group-editor card">
-      <div className="toolbar">
-        <div>
-          <h2 className="section-title">{t.pillarGroups.title}</h2>
-          <p className="section-intro">{t.pillarGroups.intro}</p>
-        </div>
+    <div className="pillar-group-editor">
+      <div className="pillar-group-toolbar">
         {mode === "closed" && (
           <button type="button" className="btn btn-secondary" onClick={openAdd}>
             {t.pillarGroups.add}
@@ -88,8 +101,13 @@ export function PillarGroupEditor({
       </div>
 
       {(mode === "add" || mode === "edit") && (
-        <form className="form-panel" onSubmit={submit}>
-          <h3>{mode === "edit" ? t.pillarGroups.edit : t.pillarGroups.new}</h3>
+        <form className="form-panel criteria-form-panel" onSubmit={submit}>
+          <div className="form-panel-heading">
+            <h4>{mode === "edit" ? t.pillarGroups.edit : t.pillarGroups.new}</h4>
+            <p className="form-panel-hint">
+              {mode === "add" ? t.pillarGroups.addHint : t.pillarGroups.editHint}
+            </p>
+          </div>
           {mode === "add" && (
             <label>
               {t.common.id}
@@ -105,12 +123,14 @@ export function PillarGroupEditor({
                 pattern="[a-z][a-z0-9_]*"
                 required
               />
+              <span className="field-hint">{t.pillarGroups.idHint}</span>
             </label>
           )}
           {mode === "edit" && (
-            <p className="readonly-id">
+            <div className="readonly-id-field">
+              <span className="field-label">{t.common.id}</span>
               <code>{form.id}</code>
-            </p>
+            </div>
           )}
           <label>
             {t.common.name}
@@ -145,71 +165,72 @@ export function PillarGroupEditor({
         </form>
       )}
 
-      <div className="pillar-group-list">
-        {pillars.map((pillar) => (
-          <div key={pillar.id} className="pillar-group-row">
-            <div>
-              <strong>{displayName(pillar)}</strong>
-              <code className="pillar-id">{pillar.id}</code>
+      <div className="pillar-group-grid" role="list">
+        <button
+          type="button"
+          role="listitem"
+          className={`pillar-group-card ${selectedPillar === "all" ? "selected" : ""}`}
+          onClick={() => onSelectPillar("all")}
+        >
+          <span className="pillar-group-icon">⊞</span>
+          <span className="pillar-group-name">{t.criteria.allPillars}</span>
+          <span className="pillar-group-meta">
+            {format(t.pillarGroups.requirementCount, {
+              count: pillars.reduce((n, p) => n + p.requirements.length, 0),
+            })}
+          </span>
+        </button>
+
+        {pillars.map((pillar) => {
+          const critical = pillar.requirements.filter((r) => r.severity === "critical").length;
+          return (
+            <button
+              key={pillar.id}
+              type="button"
+              role="listitem"
+              className={`pillar-group-card ${selectedPillar === pillar.id ? "selected" : ""}`}
+              onClick={() => onSelectPillar(pillar.id)}
+            >
+              <span className="pillar-group-icon">{pillarIcon(pillar.id)}</span>
+              <span className="pillar-group-name">{displayName(pillar)}</span>
+              <code className="pillar-group-id">{pillar.id}</code>
               {isBuiltin(pillar.id) && (
-                <span className="badge builtin">{t.pillarGroups.builtinLocked}</span>
+                <span className="badge badge-muted">{t.pillarGroups.builtinLocked}</span>
               )}
-              {pillar.description && <p className="desc">{pillar.description}</p>}
-              <span className="meta">
+              <span className="pillar-group-meta">
                 {format(t.pillarGroups.requirementCount, {
                   count: pillar.requirements.length,
                 })}
+                {critical > 0 && (
+                  <span className="critical-count">
+                    · {critical} {t.pillarCard.critical}
+                  </span>
+                )}
               </span>
-            </div>
-            <div className="row-actions">
-              <button
-                type="button"
-                className="btn btn-ghost btn-icon"
-                onClick={() => openEdit(pillar)}
-                title={t.common.edit}
-              >
-                ✎
-              </button>
-              {!isBuiltin(pillar.id) && (
+              <div className="pillar-group-actions">
                 <button
                   type="button"
-                  className="btn btn-danger btn-icon"
-                  onClick={() => {
-                    if (
-                      confirm(
-                        format(t.pillarGroups.confirmRemove, { id: pillar.id }),
-                      )
-                    ) {
-                      onDelete(pillar.id);
-                    }
-                  }}
-                  title={t.common.remove}
+                  className="btn btn-ghost btn-icon"
+                  onClick={(e) => openEdit(pillar, e)}
+                  title={t.common.edit}
                 >
-                  ×
+                  ✎
                 </button>
-              )}
-            </div>
-          </div>
-        ))}
+                {!isBuiltin(pillar.id) && (
+                  <button
+                    type="button"
+                    className="btn btn-danger btn-icon"
+                    onClick={(e) => handleDelete(pillar, e)}
+                    title={t.common.remove}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            </button>
+          );
+        })}
       </div>
-
-      <style>{`
-        .pillar-group-editor { margin-bottom: 1.5rem; }
-        .pillar-group-list { display: flex; flex-direction: column; gap: 0.6rem; }
-        .pillar-group-row {
-          display: flex; justify-content: space-between; align-items: flex-start;
-          padding: 0.75rem; border: 1px solid var(--mad-border); border-radius: 8px;
-        }
-        .pillar-id { margin-left: 0.5rem; font-size: 0.75rem; color: var(--mad-text-muted); }
-        .badge.builtin {
-          margin-left: 0.5rem; font-size: 0.7rem; padding: 0.1rem 0.4rem;
-          background: var(--mad-surface-2); border-radius: 4px;
-        }
-        .desc { margin: 0.25rem 0; font-size: 0.85rem; color: var(--mad-text-muted); }
-        .meta { font-size: 0.8rem; color: var(--mad-text-muted); }
-        .readonly-id { margin: 0 0 0.75rem; }
-        .row-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
-      `}</style>
-    </section>
+    </div>
   );
 }

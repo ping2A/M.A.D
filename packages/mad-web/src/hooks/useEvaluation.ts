@@ -15,6 +15,7 @@ import {
   setAssessment,
   updatePillar,
   updateProcurement,
+  updateValueStream,
   updateRequirement,
   updateScoring,
   updateVendor,
@@ -30,6 +31,7 @@ import type {
   Vendor,
   VendorImportMode,
   VendorImportResult,
+  ValueStreamMap,
   VendorSetFile,
 } from "../types";
 import { STATUS_CYCLE } from "../types";
@@ -139,6 +141,26 @@ export function useEvaluation() {
     await withSave(() => updateProcurement(procurement).then(() => undefined));
   };
 
+  const handleUpdateValueStream = async (vendorId: string, map: ValueStreamMap) => {
+    setSaving(true);
+    try {
+      await updateValueStream(vendorId, map);
+      setPolicy((prev) =>
+        prev
+          ? {
+              ...prev,
+              value_streams: { ...prev.value_streams, [vendorId]: map },
+            }
+          : prev,
+      );
+    } catch (err) {
+      await refresh();
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleExportWorkspace = async () => {
     await exportWorkspaceJson();
   };
@@ -197,6 +219,8 @@ export function useEvaluation() {
     cycleAssessment: handleCycleAssessment,
     updateScoring: handleUpdateScoring,
     updateProcurement: handleUpdateProcurement,
+    updateValueStream: handleUpdateValueStream,
+    valueStreams: policy?.value_streams ?? {},
     exportWorkspace: handleExportWorkspace,
     exportVendors: handleExportVendors,
     importWorkspace: handleImportWorkspace,

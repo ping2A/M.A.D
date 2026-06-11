@@ -1,3 +1,4 @@
+import { ComplianceStatusBadge } from "./ComplianceStatusBadge";
 import type { Requirement, RequirementResult } from "../types";
 import { useLocale } from "../i18n/LocaleContext";
 import type { ComplianceStatus, RequirementSeverity } from "../types";
@@ -10,10 +11,6 @@ interface RequirementListProps {
 
 function severityClass(severity: string): string {
   return `severity-${severity}`;
-}
-
-function statusClass(status: string): string {
-  return `status-${status}`;
 }
 
 export function RequirementList({ requirements, showStatus, showTechnical }: RequirementListProps) {
@@ -34,9 +31,12 @@ export function RequirementList({ requirements, showStatus, showTechnical }: Req
                 {severityLabel(req.severity as RequirementSeverity)}
               </span>
               {showStatus && status && (
-                <span className={`req-status ${statusClass(status)}`}>
-                  {statusLabel(status as ComplianceStatus)}
-                </span>
+                <ComplianceStatusBadge
+                  status={status as ComplianceStatus}
+                  label={statusLabel(status as ComplianceStatus)}
+                  variant="inline"
+                  className="req-status"
+                />
               )}
             </div>
             <p className="req-title">{req.title}</p>

@@ -1,11 +1,6 @@
 import type { Pillar } from "../types";
 import { useLocale } from "../i18n/LocaleContext";
-
-const PILLAR_ICONS: Record<string, string> = {
-  cybersecurity_dlp: "🛡️",
-  dfir: "🔍",
-  platform_os: "📱",
-};
+import { pillarIcon } from "../utils/pillarIcons";
 
 interface PillarCardProps {
   pillar: Pillar;
@@ -23,7 +18,7 @@ export function PillarCard({ pillar, selected, onClick }: PillarCardProps) {
       className={`pillar-card ${selected ? "selected" : ""}`}
       onClick={onClick}
     >
-      <span className="pillar-icon">{PILLAR_ICONS[pillar.id] ?? "◆"}</span>
+      <span className="pillar-icon">{pillarIcon(pillar.id)}</span>
       <h3 className="pillar-name">{pillar.name}</h3>
       <p className="pillar-desc">{pillar.description}</p>
       <div className="pillar-meta">

@@ -2,10 +2,13 @@ import { useMemo, useState } from "react";
 import { usePolicyContent } from "../hooks/usePolicyContent";
 import { useLocale } from "../i18n/LocaleContext";
 import type { Pillar, PillarId, Requirement, RequirementSeverity } from "../types";
+import { RequirementDisplay } from "./RequirementDisplay";
 import { suggestNextRequirementId } from "../utils/suggestRequirementId";
 
 interface CriteriaEditorProps {
   pillars: Pillar[];
+  filterPillar: PillarId | "all";
+  onFilterPillarChange: (id: PillarId | "all") => void;
   onAdd: (pillarId: PillarId, requirement: Requirement) => Promise<void>;
   onUpdate: (id: string, pillarId: PillarId, requirement: Requirement) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -13,27 +16,39 @@ interface CriteriaEditorProps {
 
 const DEFAULT_PILLAR: PillarId = "cybersecurity_dlp";
 
-const emptyForm = (pillars: Pillar[]) => ({
-  pillarId: pillars[0]?.id ?? DEFAULT_PILLAR,
-  id: suggestNextRequirementId(pillars[0]?.id ?? DEFAULT_PILLAR, pillars),
-  title: "",
-  description: "",
-  severity: "high" as RequirementSeverity,
-  platforms: "ios, android",
-  evaluationMethod: "",
-  technicalCriteria: "",
-});
+const emptyForm = (pillars: Pillar[], preferredPillar?: PillarId | "all") => {
+  const pillarId =
+    preferredPillar && preferredPillar !== "all"
+      ? preferredPillar
+      : pillars[0]?.id ?? DEFAULT_PILLAR;
+  return {
+    pillarId,
+    id: suggestNextRequirementId(pillarId, pillars),
+    title: "",
+    description: "",
+    severity: "high" as RequirementSeverity,
+    platforms: "ios, android",
+    evaluationMethod: "",
+    technicalCriteria: "",
+  };
+};
 
-export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaEditorProps) {
+export function CriteriaEditor({
+  pillars,
+  filterPillar,
+  onFilterPillarChange,
+  onAdd,
+  onUpdate,
+  onDelete,
+}: CriteriaEditorProps) {
   const { t, format, pillarLabel, severityLabel } = useLocale();
   const { localizePillars } = usePolicyContent();
   const displayPillars = useMemo(() => localizePillars(pillars), [pillars, localizePillars]);
   const pillarIds = useMemo(() => pillars.map((p) => p.id), [pillars]);
   const [mode, setMode] = useState<"closed" | "add" | "edit">("closed");
   const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState(() => emptyForm(pillars));
+  const [form, setForm] = useState(() => emptyForm(pillars, filterPillar));
   const [saving, setSaving] = useState(false);
-  const [filterPillar, setFilterPillar] = useState<PillarId | "all">("all");
 
   const pillarName = (id: PillarId) => {
     const localized = displayPillars.find((p) => p.id === id)?.name;
@@ -54,18 +69,21 @@ export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaE
     return map;
   }, [pillars]);
 
-  const filtered = filterPillar === "all"
-    ? allRequirements
-    : allRequirements.filter((r) => r.pillarId === filterPillar);
+  const filtered =
+    filterPillar === "all"
+      ? allRequirements
+      : allRequirements.filter((r) => r.pillarId === filterPillar);
+
+  const showPillarColumn = filterPillar === "all";
 
   const resetForm = () => {
-    setForm(emptyForm(pillars));
+    setForm(emptyForm(pillars, filterPillar));
     setEditId(null);
     setMode("closed");
   };
 
   const openAdd = () => {
-    setForm(emptyForm(pillars));
+    setForm(emptyForm(pillars, filterPillar));
     setEditId(null);
     setMode("add");
   };
@@ -105,6 +123,7 @@ export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaE
         await onUpdate(editId, form.pillarId, requirement);
       } else {
         await onAdd(form.pillarId, requirement);
+        onFilterPillarChange(form.pillarId);
       }
       resetForm();
     } finally {
@@ -129,12 +148,34 @@ export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaE
     }));
   };
 
+  const countForPillar = (pid: PillarId | "all") =>
+    pid === "all"
+      ? allRequirements.length
+      : allRequirements.filter((r) => r.pillarId === pid).length;
+
   return (
-    <section className="criteria-editor">
-      <div className="toolbar">
-        <div>
-          <h2 className="section-title">{t.criteria.title}</h2>
-          <p className="section-intro">{t.criteria.intro}</p>
+    <div className="criteria-editor">
+      <div className="criteria-editor-toolbar">
+        <div className="filter-chips" role="group" aria-label={t.common.filterByPillar}>
+          <button
+            type="button"
+            className={`filter-chip ${filterPillar === "all" ? "active" : ""}`}
+            onClick={() => onFilterPillarChange("all")}
+          >
+            {t.criteria.allPillars}
+            <span className="chip-count">{countForPillar("all")}</span>
+          </button>
+          {pillarIds.map((pid) => (
+            <button
+              key={pid}
+              type="button"
+              className={`filter-chip ${filterPillar === pid ? "active" : ""}`}
+              onClick={() => onFilterPillarChange(pid)}
+            >
+              {pillarName(pid)}
+              <span className="chip-count">{countForPillar(pid)}</span>
+            </button>
+          ))}
         </div>
         {mode === "closed" && (
           <button type="button" className="btn btn-primary" onClick={openAdd}>
@@ -144,8 +185,13 @@ export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaE
       </div>
 
       {(mode === "add" || mode === "edit") && (
-        <form className="form-panel" onSubmit={submit}>
-          <h3>{mode === "edit" ? t.criteria.edit : t.criteria.new}</h3>
+        <form className="form-panel criteria-form-panel" onSubmit={submit}>
+          <div className="form-panel-heading">
+            <h4>{mode === "edit" ? t.criteria.edit : t.criteria.new}</h4>
+            <p className="form-panel-hint">
+              {mode === "add" ? t.criteria.addHint : t.criteria.editHint}
+            </p>
+          </div>
           <div className="form-row">
             <label>
               {t.common.pillar}
@@ -180,6 +226,9 @@ export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaE
                   </button>
                 )}
               </div>
+              {mode === "add" && (
+                <span className="field-hint">{t.criteria.idHint}</span>
+              )}
             </label>
             <label>
               {t.common.severity}
@@ -221,24 +270,27 @@ export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaE
               />
             </label>
           </div>
-          <label>
-            {t.criteria.evaluationMethod}
-            <textarea
-              value={form.evaluationMethod}
-              onChange={(e) => setField("evaluationMethod", e.target.value)}
-              rows={2}
-              placeholder={t.criteria.placeholderEvaluation}
-            />
-          </label>
-          <label>
-            {t.criteria.technicalCriteria}
-            <textarea
-              value={form.technicalCriteria}
-              onChange={(e) => setField("technicalCriteria", e.target.value)}
-              rows={2}
-              placeholder={t.criteria.placeholderTechnical}
-            />
-          </label>
+          <details className="form-advanced">
+            <summary>{t.criteria.advancedFields}</summary>
+            <label>
+              {t.criteria.evaluationMethod}
+              <textarea
+                value={form.evaluationMethod}
+                onChange={(e) => setField("evaluationMethod", e.target.value)}
+                rows={2}
+                placeholder={t.criteria.placeholderEvaluation}
+              />
+            </label>
+            <label>
+              {t.criteria.technicalCriteria}
+              <textarea
+                value={form.technicalCriteria}
+                onChange={(e) => setField("technicalCriteria", e.target.value)}
+                rows={2}
+                placeholder={t.criteria.placeholderTechnical}
+              />
+            </label>
+          </details>
           <div className="form-actions">
             <button type="submit" className="btn btn-primary" disabled={saving}>
               {saving
@@ -254,99 +306,73 @@ export function CriteriaEditor({ pillars, onAdd, onUpdate, onDelete }: CriteriaE
         </form>
       )}
 
-      <div className="filter-bar">
-        <span>{t.common.filterByPillar}</span>
-        <select
-          value={filterPillar}
-          onChange={(e) => setFilterPillar(e.target.value as PillarId | "all")}
-        >
-          <option value="all">
-            {t.criteria.allPillars} ({allRequirements.length})
-          </option>
-          {pillarIds.map((pid) => (
-            <option key={pid} value={pid}>
-              {pillarName(pid)} (
-              {allRequirements.filter((r) => r.pillarId === pid).length})
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="data-table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>{t.common.id}</th>
-              <th>{t.common.pillar}</th>
-              <th>{t.common.title}</th>
-              <th>{t.common.severity}</th>
-              <th>{t.common.platforms}</th>
-              <th>{t.common.actions}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((req) => (
-              <tr key={req.id}>
-                <td><code>{req.id}</code></td>
-                <td>{pillarName(req.pillarId)}</td>
-                <td>
-                  <strong>{req.title}</strong>
-                  {req.description && <span className="desc">{req.description}</span>}
-                </td>
-                <td>
-                  <span className={`badge sev-${req.severity}`}>
-                    {severityLabel(req.severity)}
-                  </span>
-                </td>
-                <td>{req.platforms.join(", ")}</td>
-                <td>
-                  <div className="row-actions">
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-icon"
-                      onClick={() => openEdit(req)}
-                      title={t.common.edit}
-                    >
-                      ✎
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-danger btn-icon"
-                      onClick={() => {
-                        if (confirm(format(t.criteria.confirmRemove, { id: req.id }))) {
-                          onDelete(req.id);
-                        }
-                      }}
-                      title={t.common.remove}
-                    >
-                      ×
-                    </button>
-                  </div>
-                </td>
+      {filtered.length === 0 ? (
+        <div className="empty-state card">
+          <p className="empty-state-title">{t.criteriaPage.noRequirements}</p>
+          <p className="empty-state-hint">{t.criteriaPage.noRequirementsHint}</p>
+          {mode === "closed" && (
+            <button type="button" className="btn btn-primary" onClick={openAdd}>
+              {t.criteria.add}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="data-table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>{t.matrix.criterion}</th>
+                {showPillarColumn && <th>{t.common.pillar}</th>}
+                <th>{t.common.actions}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <style>{`
-        .desc {
-          display: block; font-size: 0.8rem; color: var(--mad-text-muted);
-          font-weight: 400; margin-top: 0.2rem;
-        }
-        .filter-bar {
-          display: flex; align-items: center; gap: 0.6rem;
-          margin-bottom: 0.75rem; font-size: 0.85rem; color: var(--mad-text-muted);
-        }
-        .filter-bar select {
-          padding: 0.4rem 0.6rem; border: 1px solid var(--mad-border);
-          border-radius: 6px; font-family: inherit; font-size: 0.85rem;
-        }
-        .row-actions { display: flex; gap: 0.25rem; }
-        .id-field { display: flex; gap: 0.35rem; align-items: center; }
-        .id-field input { flex: 1; }
-        .btn-sm { font-size: 0.75rem; padding: 0.25rem 0.5rem; white-space: nowrap; }
-      `}</style>
-    </section>
+            </thead>
+            <tbody>
+              {filtered.map((req) => (
+                <tr key={req.id}>
+                  <td className="requirement-table-cell">
+                    <RequirementDisplay
+                      id={req.id}
+                      title={req.title}
+                      description={req.description}
+                      severity={req.severity}
+                      platforms={req.platforms}
+                      severityLabel={severityLabel}
+                      variant="table"
+                    />
+                  </td>
+                  {showPillarColumn && (
+                    <td className="pillar-name-cell">{pillarName(req.pillarId)}</td>
+                  )}
+                  <td>
+                    <div className="row-actions">
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-icon"
+                        onClick={() => openEdit(req)}
+                        title={t.common.edit}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-icon"
+                        onClick={() => {
+                          if (confirm(format(t.criteria.confirmRemove, { id: req.id }))) {
+                            onDelete(req.id);
+                          }
+                        }}
+                        title={t.common.remove}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 mod workspace_store;
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,8 +15,8 @@ use axum::{
 use mad_core::{
     default_html_options, default_pdf_options, render_html, render_pdf, Evaluator,
     parse_workspace_import, EvaluationWorkspace, Pillar, PolicyBundle, ProcurementConfig,
-    Requirement, ScoringConfig, Vendor, VendorImportMode, VendorImportResult, VendorSetFile,
-    WorkspaceImportResult,
+    Requirement, ScoringConfig, ValueStreamMap, Vendor, VendorImportMode, VendorImportResult,
+    VendorSetFile, WorkspaceImportResult,
 };
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
@@ -43,6 +44,7 @@ struct PolicySummary {
     pillars: Vec<mad_core::Pillar>,
     scoring: ScoringConfig,
     procurement: ProcurementConfig,
+    value_streams: HashMap<String, ValueStreamMap>,
 }
 
 #[derive(Deserialize)]
@@ -96,6 +98,11 @@ struct UpdateScoringBody {
 #[derive(Deserialize)]
 struct UpdateProcurementBody {
     procurement: ProcurementConfig,
+}
+
+#[derive(Deserialize)]
+struct UpdateValueStreamBody {
+    value_stream: ValueStreamMap,
 }
 
 #[derive(Deserialize)]
@@ -170,6 +177,10 @@ async fn main() {
         .route(
             "/api/workspace/vendors/{id}",
             put(update_vendor).delete(delete_vendor),
+        )
+        .route(
+            "/api/workspace/vendors/{id}/value-stream",
+            put(update_value_stream),
         )
         .route("/api/workspace/assessments", put(set_assessment))
         .route("/api/workspace/scoring", put(update_scoring))
@@ -528,7 +539,26 @@ async fn policy(State(state): State<Arc<AppState>>) -> Result<Json<PolicySummary
         pillars: workspace.pillars.clone(),
         scoring: workspace.scoring.clone(),
         procurement: workspace.procurement.clone(),
+        value_streams: workspace.value_streams.clone(),
     }))
+}
+
+async fn update_value_stream(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateValueStreamBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.vendors.iter().any(|v| v.id.0 == id) {
+        return Ok(Json(workspace));
+    }
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.set_value_stream(&id, body.value_stream);
+        })
+        .await?;
+    Ok(Json(ws))
 }
 
 async fn update_procurement(

@@ -6,6 +6,7 @@ use crate::pillar::{builtin, Pillar, Requirement, RequirementSeverity};
 use crate::policy::PolicyBundle;
 use crate::pricing::ProcurementConfig;
 use crate::scoring::ScoringConfig;
+use crate::value_stream::ValueStreamMap;
 use crate::vendor::{Vendor, VendorAssessment, VendorId};
 use crate::vendor_set::{
     sanitize_assessment, VendorImportMode, VendorImportResult, VendorSetFile,
@@ -22,6 +23,9 @@ pub struct EvaluationWorkspace {
     pub vendors: Vec<Vendor>,
     /// vendor_id → assessment
     pub assessments: HashMap<String, VendorAssessment>,
+    /// vendor_id → value stream map
+    #[serde(default)]
+    pub value_streams: HashMap<String, ValueStreamMap>,
 }
 
 impl EvaluationWorkspace {
@@ -40,7 +44,27 @@ impl EvaluationWorkspace {
             pillars: bundle.pillars.clone(),
             vendors: Vec::new(),
             assessments: HashMap::new(),
+            value_streams: HashMap::new(),
         }
+    }
+
+    pub fn get_value_stream(&self, vendor_id: &str) -> ValueStreamMap {
+        self.value_streams
+            .get(vendor_id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn set_value_stream(&mut self, vendor_id: &str, map: ValueStreamMap) -> bool {
+        if !self.vendors.iter().any(|v| v.id.0 == vendor_id) {
+            return false;
+        }
+        if map.nodes.is_empty() && map.edges.is_empty() && map.messages.is_empty() {
+            self.value_streams.remove(vendor_id);
+        } else {
+            self.value_streams.insert(vendor_id.to_string(), map);
+        }
+        true
     }
 
     pub fn total_requirements(&self) -> usize {
@@ -220,6 +244,7 @@ impl EvaluationWorkspace {
         self.vendors.retain(|v| v.id.0 != vendor_id);
         if self.vendors.len() < before {
             self.assessments.remove(vendor_id);
+            self.value_streams.remove(vendor_id);
             true
         } else {
             false

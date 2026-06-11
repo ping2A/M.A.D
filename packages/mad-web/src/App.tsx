@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { ComparisonView } from "./components/ComparisonView";
-import { CriteriaEditor } from "./components/CriteriaEditor";
-import { PillarGroupEditor } from "./components/PillarGroupEditor";
+import { CriteriaTab } from "./components/CriteriaTab";
 import { Header } from "./components/Header";
 import { PillarCard } from "./components/PillarCard";
 import { ScoreMatrix } from "./components/ScoreMatrix";
@@ -12,13 +11,22 @@ import { ScoringPanel } from "./components/ScoringPanel";
 import { StatsBar } from "./components/StatsBar";
 import { TechnicalReport } from "./components/TechnicalReport";
 import { VendorEditor } from "./components/VendorEditor";
+import { ValueStreamView } from "./components/ValueStreamView";
 import { VendorScorecard } from "./components/VendorScorecard";
 import { useEvaluation } from "./hooks/useEvaluation";
 import { usePolicyContent } from "./hooks/usePolicyContent";
 import { useLocale } from "./i18n/LocaleContext";
 import { rankVendors } from "./utils/ranking";
 
-type Tab = "overview" | "vendors" | "criteria" | "matrix" | "compare" | "scorecards" | "report";
+type Tab =
+  | "overview"
+  | "vendors"
+  | "criteria"
+  | "matrix"
+  | "compare"
+  | "scorecards"
+  | "vsm"
+  | "report";
 
 export default function App() {
   const { t } = useLocale();
@@ -42,6 +50,8 @@ export default function App() {
     cycleAssessment,
     updateScoring,
     updateProcurement,
+    updateValueStream,
+    valueStreams,
     exportWorkspace,
     exportVendors,
     importWorkspace,
@@ -67,6 +77,7 @@ export default function App() {
     ["criteria", t.tabs.criteria],
     ["compare", t.tabs.compare],
     ["scorecards", t.tabs.scorecards],
+    ["vsm", t.tabs.vsm],
     ["overview", t.tabs.overview],
     ["report", t.tabs.report],
   ];
@@ -179,20 +190,15 @@ export default function App() {
             )}
 
             {tab === "criteria" && policy && (
-              <>
-                <PillarGroupEditor
-                  pillars={policy.pillars}
-                  onAdd={addPillar}
-                  onUpdate={updatePillar}
-                  onDelete={deletePillar}
-                />
-                <CriteriaEditor
-                  pillars={policy.pillars}
-                  onAdd={addRequirement}
-                  onUpdate={updateRequirement}
-                  onDelete={deleteRequirement}
-                />
-              </>
+              <CriteriaTab
+                pillars={policy.pillars}
+                onAddPillar={addPillar}
+                onUpdatePillar={updatePillar}
+                onDeletePillar={deletePillar}
+                onAddRequirement={addRequirement}
+                onUpdateRequirement={updateRequirement}
+                onDeleteRequirement={deleteRequirement}
+              />
             )}
 
             {tab === "matrix" && (
@@ -219,6 +225,15 @@ export default function App() {
                   ))}
                 </div>
               </section>
+            )}
+
+            {tab === "vsm" && displayEvaluation && (
+              <ValueStreamView
+                evaluation={displayEvaluation}
+                valueStreams={valueStreams}
+                saving={saving}
+                onSave={updateValueStream}
+              />
             )}
 
             {tab === "report" && (

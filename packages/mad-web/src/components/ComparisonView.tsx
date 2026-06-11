@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ComparisonFilterBar } from "./ComparisonFilterBar";
+import { ComplianceStatusBadge } from "./ComplianceStatusBadge";
 import type {
   ComplianceStatus,
   EvaluationReport,
@@ -540,7 +541,11 @@ function TradeoffsView({
                         const status = getReqStatus(r, req.id);
                         return (
                           <td key={r.vendor.id}>
-                            <span className={`status-pill status-${status}`}>{statusLabel(status)}</span>
+                            <ComplianceStatusBadge
+                              status={status}
+                              label={statusLabel(status)}
+                              variant="inline"
+                            />
                           </td>
                         );
                       })}

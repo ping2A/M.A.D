@@ -54,6 +54,7 @@ export interface PolicySummary {
   pillars: Pillar[];
   scoring: ScoringConfig;
   procurement: ProcurementConfig;
+  value_streams: Record<string, ValueStreamMap>;
 }
 
 export type BillingPeriod = "monthly" | "annual";
@@ -92,6 +93,62 @@ export interface VendorAssessment {
   requirements: Record<string, RequirementAssessment>;
 }
 
+export type VsmNodeType =
+  | "process"
+  | "decision"
+  | "info"
+  | "delay"
+  | "external"
+  | "customer"
+  | "supplier"
+  | "inventory"
+  | "kaizen";
+
+export interface VsmFlowTypeDef {
+  id: string;
+  label: string;
+  color: string;
+  dash?: string;
+}
+
+export interface VsmNode {
+  id: string;
+  label: string;
+  node_type: VsmNodeType;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  notes?: string;
+  role?: string;
+  lead_time_minutes?: number;
+  cycle_time_minutes?: number;
+  author?: string;
+}
+
+export interface VsmEdge {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+  edge_type?: string;
+  duration_minutes?: number;
+}
+
+export interface VsmMessage {
+  id: string;
+  text: string;
+  node_id?: string;
+  edge_id?: string;
+}
+
+export interface ValueStreamMap {
+  nodes: VsmNode[];
+  edges: VsmEdge[];
+  messages: VsmMessage[];
+  flow_types?: VsmFlowTypeDef[];
+}
+
 export interface EvaluationWorkspace {
   policy_version: string;
   scoring: ScoringConfig;
@@ -99,6 +156,7 @@ export interface EvaluationWorkspace {
   pillars: Pillar[];
   vendors: Vendor[];
   assessments: Record<string, VendorAssessment>;
+  value_streams?: Record<string, ValueStreamMap>;
 }
 
 export interface VendorSetFile {

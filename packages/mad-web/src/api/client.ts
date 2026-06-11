@@ -10,6 +10,7 @@ import type {
   Vendor,
   VendorImportMode,
   VendorImportResult,
+  ValueStreamMap,
   VendorSetFile,
   WorkspaceImportResult,
 } from "../types";
@@ -211,6 +212,20 @@ export function updateScoring(scoring: ScoringConfig): Promise<EvaluationWorkspa
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scoring }),
   });
+}
+
+export function updateValueStream(
+  vendorId: string,
+  valueStream: ValueStreamMap,
+): Promise<EvaluationWorkspace> {
+  return fetchJson<EvaluationWorkspace>(
+    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/value-stream`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value_stream: valueStream }),
+    },
+  );
 }
 
 export function updateProcurement(
