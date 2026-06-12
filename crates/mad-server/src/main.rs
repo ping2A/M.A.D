@@ -16,7 +16,7 @@ use mad_core::{
     default_html_options, default_pdf_options, render_html, render_pdf, Evaluator,
     parse_workspace_import, EvaluationWorkspace, Pillar, PolicyBundle, ProcurementConfig,
     Requirement, ScoringConfig, ValueStreamEntry, ValueStreamMap, Vendor, VendorImportMode,
-    VendorImportResult,
+    VendorDocSection, VendorImportResult,
     VendorSetFile, WorkspaceImportResult,
 };
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,7 @@ struct PolicySummary {
     scoring: ScoringConfig,
     procurement: ProcurementConfig,
     value_streams: HashMap<String, Vec<ValueStreamEntry>>,
+    vendor_docs: HashMap<String, Vec<VendorDocSection>>,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +117,22 @@ struct UpsertValueStreamBody {
     name: String,
     #[serde(flatten)]
     map: ValueStreamMap,
+}
+
+#[derive(Deserialize)]
+struct CreateVendorDocBody {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct UpsertVendorDocBody {
+    name: String,
+    #[serde(default)]
+    color: Option<String>,
+    #[serde(default)]
+    overview: Option<String>,
+    #[serde(default)]
+    items: Vec<mad_core::VendorDocItem>,
 }
 
 #[derive(Deserialize)]
@@ -202,6 +219,14 @@ async fn main() {
         .route(
             "/api/workspace/vendors/{id}/value-streams/{stream_id}",
             put(update_value_stream_entry).delete(delete_value_stream_entry),
+        )
+        .route(
+            "/api/workspace/vendors/{id}/docs",
+            post(create_vendor_doc),
+        )
+        .route(
+            "/api/workspace/vendors/{id}/docs/{doc_id}",
+            put(update_vendor_doc).delete(delete_vendor_doc),
         )
         .route("/api/workspace/assessments", put(set_assessment))
         .route("/api/workspace/scoring", put(update_scoring))
@@ -398,6 +423,7 @@ async fn import_workspace(
         requirements: 0,
         vendors: 0,
         assessments: 0,
+        value_stream_maps: 0,
         vendor_result: None,
     };
     let workspace = state
@@ -447,6 +473,8 @@ async fn import_vendors(
         updated: 0,
         skipped: 0,
         removed: 0,
+        value_streams_imported: 0,
+        vendor_docs_imported: 0,
     };
     let workspace = state
         .workspace
@@ -561,6 +589,7 @@ async fn policy(State(state): State<Arc<AppState>>) -> Result<Json<PolicySummary
         scoring: workspace.scoring.clone(),
         procurement: workspace.procurement.clone(),
         value_streams: workspace.value_streams.clone(),
+        vendor_docs: workspace.vendor_docs.clone(),
     }))
 }
 
@@ -636,6 +665,62 @@ async fn delete_value_stream_entry(
     Ok(Json(ws))
 }
 
+async fn create_vendor_doc(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(body): Json<CreateVendorDocBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.vendors.iter().any(|v| v.id.0 == id) {
+        return Ok(Json(workspace));
+    }
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.create_vendor_doc(&id, body.name);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn update_vendor_doc(
+    State(state): State<Arc<AppState>>,
+    Path((id, doc_id)): Path<(String, String)>,
+    Json(body): Json<UpsertVendorDocBody>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let workspace = state.workspace.get().await;
+    if !workspace.vendors.iter().any(|v| v.id.0 == id) {
+        return Ok(Json(workspace));
+    }
+    let section = VendorDocSection {
+        id: doc_id,
+        name: body.name,
+        color: body.color,
+        overview: body.overview,
+        items: body.items,
+    };
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.upsert_vendor_doc(&id, section);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
+async fn delete_vendor_doc(
+    State(state): State<Arc<AppState>>,
+    Path((id, doc_id)): Path<(String, String)>,
+) -> Result<Json<EvaluationWorkspace>, AppError> {
+    let ws = state
+        .workspace
+        .update(|w| {
+            w.remove_vendor_doc(&id, &doc_id);
+        })
+        .await?;
+    Ok(Json(ws))
+}
+
 async fn update_procurement(
     State(state): State<Arc<AppState>>,
     Json(body): Json<UpdateProcurementBody>,
@@ -666,7 +751,13 @@ async fn report_html(State(state): State<Arc<AppState>>) -> Result<impl IntoResp
         None
     };
     let options = default_html_options(logo_path);
-    let html = render_html(&bundle, &evaluation, &workspace.value_streams, &options);
+    let html = render_html(
+        &bundle,
+        &evaluation,
+        &workspace.value_streams,
+        &workspace.vendor_docs,
+        &options,
+    );
 
     Ok((
         [
@@ -690,7 +781,14 @@ async fn report_pdf(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
         None
     };
     let options = default_pdf_options(logo_path);
-    let pdf = render_pdf(&bundle, &evaluation, &workspace.value_streams, &options).map_err(|e| {
+    let pdf = render_pdf(
+        &bundle,
+        &evaluation,
+        &workspace.value_streams,
+        &workspace.vendor_docs,
+        &options,
+    )
+    .map_err(|e| {
         mad_core::MadError::Io {
             path: PathBuf::from("report.pdf"),
             source: std::io::Error::new(std::io::ErrorKind::Other, e),

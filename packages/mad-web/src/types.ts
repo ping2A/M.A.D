@@ -46,6 +46,24 @@ export interface ScoringConfig {
   use_severity_weighting: boolean;
 }
 
+export interface VendorDocItem {
+  id: string;
+  group?: string | null;
+  /** Preset id (`critical`, `warning`, …) or custom `#rrggbb` hex. */
+  color?: string | null;
+  title: string;
+  description?: string | null;
+  notes?: string | null;
+}
+
+export interface VendorDocSection {
+  id: string;
+  name: string;
+  color?: string | null;
+  overview?: string | null;
+  items: VendorDocItem[];
+}
+
 export interface PolicySummary {
   version: string;
   pillar_count: number;
@@ -55,6 +73,7 @@ export interface PolicySummary {
   scoring: ScoringConfig;
   procurement: ProcurementConfig;
   value_streams: Record<string, ValueStreamEntry[]>;
+  vendor_docs: Record<string, VendorDocSection[]>;
 }
 
 export type BillingPeriod = "monthly" | "annual";
@@ -162,6 +181,7 @@ export interface EvaluationWorkspace {
   vendors: Vendor[];
   assessments: Record<string, VendorAssessment>;
   value_streams?: Record<string, ValueStreamEntry[]>;
+  vendor_docs?: Record<string, VendorDocSection[]>;
 }
 
 export interface VendorSetFile {
@@ -169,6 +189,8 @@ export interface VendorSetFile {
   exported_at: string;
   vendors: Vendor[];
   assessments: Record<string, VendorAssessment>;
+  value_streams?: Record<string, ValueStreamEntry[]>;
+  vendor_docs?: Record<string, VendorDocSection[]>;
 }
 
 export interface WorkspaceBundle {
@@ -183,6 +205,7 @@ export interface WorkspaceImportResult {
   requirements: number;
   vendors: number;
   assessments: number;
+  value_stream_maps: number;
   vendor_result?: VendorImportResult | null;
 }
 
@@ -193,6 +216,10 @@ export interface VendorImportResult {
   updated: number;
   skipped: number;
   removed: number;
+  value_streams_imported?: number;
+  vendor_docs_imported?: number;
+  /** @deprecated use vendor_docs_imported */
+  privacy_profiles_imported?: number;
 }
 
 export interface PillarScore {

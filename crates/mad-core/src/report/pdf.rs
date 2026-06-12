@@ -13,7 +13,8 @@ use std::collections::HashMap;
 use crate::evaluation::{EvaluationReport, EvaluationResult};
 use crate::pillar::RequirementSeverity;
 use crate::policy::PolicyBundle;
-use crate::report::vsm;
+use crate::report::{vendor_doc, vsm};
+use crate::vendor_doc::VendorDocSection;
 use crate::value_stream::{ValueStreamEntry, ValueStreamMap};
 use crate::vendor::ComplianceStatus;
 
@@ -27,7 +28,9 @@ pub struct PdfReportOptions {
 const PAGE_W_MM: f32 = 210.0;
 const PAGE_H_MM: f32 = 297.0;
 const MARGIN_MM: f32 = 14.0;
+const FOOTER_H_MM: f32 = 10.0;
 const CONTENT_W_MM: f32 = PAGE_W_MM - 2.0 * MARGIN_MM;
+const CONTENT_BOTTOM_MM: f32 = PAGE_H_MM - MARGIN_MM - FOOTER_H_MM;
 
 mod colors {
     use super::Rgb;
@@ -90,12 +93,19 @@ struct PdfLayout {
     page: PdfPageIndex,
     layer: PdfLayerIndex,
     y_top: f32,
+    page_num: u32,
+    generated_label: String,
     font: printpdf::IndirectFontRef,
     font_bold: printpdf::IndirectFontRef,
 }
 
 impl PdfLayout {
-    fn new(doc: PdfDocumentReference, page: PdfPageIndex, layer: PdfLayerIndex) -> Self {
+    fn new(
+        doc: PdfDocumentReference,
+        page: PdfPageIndex,
+        layer: PdfLayerIndex,
+        generated_label: String,
+    ) -> Self {
         let font = doc.add_builtin_font(BuiltinFont::Helvetica).expect("font");
         let font_bold = doc
             .add_builtin_font(BuiltinFont::HelveticaBold)
@@ -105,6 +115,8 @@ impl PdfLayout {
             page,
             layer,
             y_top: MARGIN_MM,
+            page_num: 1,
+            generated_label,
             font,
             font_bold,
         }
@@ -115,12 +127,45 @@ impl PdfLayout {
     }
 
     fn ensure(&mut self, height_mm: f32) {
-        if self.y_top + height_mm > PAGE_H_MM - MARGIN_MM {
+        if self.y_top + height_mm > CONTENT_BOTTOM_MM {
+            self.draw_page_footer();
             let (page, layer) = self.doc.add_page(Mm(PAGE_W_MM), Mm(PAGE_H_MM), "Page");
             self.page = page;
             self.layer = layer;
+            self.page_num += 1;
             self.y_top = MARGIN_MM;
         }
+    }
+
+    fn draw_page_footer(&mut self) {
+        let y = PAGE_H_MM - 7.0;
+        let generated = self.generated_label.clone();
+        let page = self.page_num;
+        self.stroke_line(MARGIN_MM, y - 3.0, MARGIN_MM + CONTENT_W_MM, colors::bar_bg(), 0.3);
+        self.text_at(
+            MARGIN_MM,
+            y,
+            "MAD - Mobile Assessment & Defense",
+            7.0,
+            false,
+            colors::muted(),
+        );
+        self.text_at(
+            MARGIN_MM + 70.0,
+            y,
+            &generated,
+            7.0,
+            false,
+            colors::muted(),
+        );
+        self.text_at(
+            PAGE_W_MM - MARGIN_MM - 18.0,
+            y,
+            &format!("Page {page}"),
+            7.0,
+            false,
+            colors::muted(),
+        );
     }
 
     fn advance(&mut self, height_mm: f32) {
@@ -139,18 +184,36 @@ impl PdfLayout {
     }
 
     fn stroke_line(&mut self, x1: f32, y_top: f32, x2: f32, color: Rgb, thickness: f32) {
+        self.stroke_line_xy(x1, y_top, x2, y_top, color, thickness);
+    }
+
+    fn stroke_line_xy(
+        &mut self,
+        x1: f32,
+        y1_top: f32,
+        x2: f32,
+        y2_top: f32,
+        color: Rgb,
+        thickness: f32,
+    ) {
         let layer = self.layer();
         layer.set_outline_color(Color::Rgb(color));
         layer.set_outline_thickness(thickness);
-        let y = PAGE_H_MM - y_top;
         let line = Line {
             points: vec![
-                (Point::new(Mm(x1), Mm(y)), false),
-                (Point::new(Mm(x2), Mm(y)), false),
+                (Point::new(Mm(x1), Mm(PAGE_H_MM - y1_top)), false),
+                (Point::new(Mm(x2), Mm(PAGE_H_MM - y2_top)), false),
             ],
             is_closed: false,
         };
         layer.add_line(line);
+    }
+
+    fn stroke_rect(&mut self, x: f32, y_top: f32, w: f32, h: f32, color: Rgb, thickness: f32) {
+        self.stroke_line_xy(x, y_top, x + w, y_top, color.clone(), thickness);
+        self.stroke_line_xy(x + w, y_top, x + w, y_top + h, color.clone(), thickness);
+        self.stroke_line_xy(x + w, y_top + h, x, y_top + h, color.clone(), thickness);
+        self.stroke_line_xy(x, y_top + h, x, y_top, color, thickness);
     }
 
     fn text_at(
@@ -166,7 +229,7 @@ impl PdfLayout {
         layer.set_fill_color(Color::Rgb(color));
         let font = if bold { &self.font_bold } else { &self.font };
         layer.use_text(
-            content,
+            &sanitize_pdf_text(content),
             size,
             Mm(x),
             Mm(PAGE_H_MM - y_top),
@@ -284,11 +347,13 @@ pub fn render_pdf(
     bundle: &PolicyBundle,
     evaluation: &EvaluationReport,
     value_streams: &HashMap<String, Vec<ValueStreamEntry>>,
+    vendor_docs: &HashMap<String, Vec<VendorDocSection>>,
     options: &PdfReportOptions,
 ) -> Result<Vec<u8>, String> {
+    let generated = options.generated_at.as_deref().unwrap_or("-").to_string();
     let (doc, page1, layer1) =
         PdfDocument::new("MAD Report", Mm(PAGE_W_MM), Mm(PAGE_H_MM), "Layer 1");
-    let mut layout = PdfLayout::new(doc, page1, layer1);
+    let mut layout = PdfLayout::new(doc, page1, layer1, generated.clone());
 
     // ── Header band ──────────────────────────────────────────────────────
     let header_h = 28.0;
@@ -326,7 +391,6 @@ pub fn render_pdf(
     let meta_h = 14.0;
     let meta_y = layout.y_top;
     layout.fill_rect(MARGIN_MM, meta_y, CONTENT_W_MM, meta_h, colors::navy_light());
-    let generated = options.generated_at.as_deref().unwrap_or("—");
     layout.text_at(
         MARGIN_MM + 3.0,
         meta_y + 5.0,
@@ -341,11 +405,24 @@ pub fn render_pdf(
         false,
         colors::white(),
     );
+    let mut meta_line2 = format!("Generated {generated}");
+    if evaluation.procurement.device_count > 0 {
+        meta_line2.push_str(&format!(
+            "   Devices: {}",
+            evaluation.procurement.device_count
+        ));
+        if evaluation.procurement.use_price_in_ranking {
+            meta_line2.push_str(&format!(
+                "   Price weight: {:.0}%",
+                evaluation.procurement.price_weight_percent
+            ));
+        }
+    }
     layout.text_at(
         MARGIN_MM + 3.0,
         meta_y + 10.0,
-        &format!("Generated {generated}"),
-        7.5,
+        &meta_line2,
+        7.0,
         false,
         colors::silver(),
     );
@@ -465,10 +542,22 @@ pub fn render_pdf(
     layout.fill_rect(MARGIN_MM, code_y, CONTENT_W_MM, code_h, colors::navy());
     let formula = "pillar_score = ((compliant x 1.0) + (partial x 0.5)) / total x 100";
     layout.text_at(MARGIN_MM + 3.0, code_y + 6.0, formula, 8.0, false, colors::cyan());
+    let pillar_names: Vec<String> = bundle.pillars.iter().map(|p| p.name.clone()).collect();
+    let overall_formula = if pillar_names.is_empty() {
+        "overall_score = mean(pillar scores)".to_string()
+    } else if pillar_names.len() <= 3 {
+        format!("overall_score = mean({})", pillar_names.join(", "))
+    } else {
+        format!(
+            "overall_score = mean({} + {} more)",
+            pillar_names[..2].join(", "),
+            pillar_names.len() - 2
+        )
+    };
     layout.text_at(
         MARGIN_MM + 3.0,
         code_y + 11.0,
-        "overall_score = mean(cybersecurity, dfir, platform_os)",
+        &overall_formula,
         8.0,
         false,
         colors::silver(),
@@ -550,15 +639,26 @@ pub fn render_pdf(
     // ── Section 4 ────────────────────────────────────────────────────────
     layout.section_heading("4. Vendor Assessment Results");
 
-    let mut ranked: Vec<_> = evaluation.vendors.iter().collect();
-    ranked.sort_by(|a, b| {
-        b.overall_score
-            .overall_score_percent
-            .partial_cmp(&a.overall_score.overall_score_percent)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let ranked = rank_vendors(evaluation);
+    let composite_ranking = uses_composite_ranking(evaluation);
+
+    if evaluation.procurement.device_count > 0 {
+        let price_note = if composite_ranking {
+            format!(
+                "Ranking uses composite score: {:.0}% capability + {:.0}% price (lower annual cost per device scores higher).",
+                100.0 - evaluation.procurement.price_weight_percent,
+                evaluation.procurement.price_weight_percent
+            )
+        } else {
+            "Annual costs are estimated from vendor pricing for the configured device count (reference only).".into()
+        };
+        layout.paragraph(&price_note);
+    }
 
     layout.subheading("Comparison summary");
+    render_comparison_table(&mut layout, evaluation, &ranked, composite_ranking);
+    layout.advance(4.0);
+
     let pillar_defs: Vec<(String, String)> = ranked
         .first()
         .map(|r| {
@@ -567,155 +667,13 @@ pub fn render_pdf(
                 .map(|p| (p.pillar_id.clone(), p.pillar_name.clone()))
                 .collect()
         })
-        .unwrap_or_default();
-    let pillar_count = pillar_defs.len().max(1) as f32;
-    let pillar_col_w = 58.0 / pillar_count;
-    let status_col = MARGIN_MM + 68.0 + pillar_col_w * pillar_count as f32;
-
-    let lb_y = layout.y_top;
-    let lb_row = 7.5;
-    layout.fill_rect(MARGIN_MM, lb_y, CONTENT_W_MM, lb_row, colors::navy_light());
-    layout.text_at(MARGIN_MM + 2.0, lb_y + 5.2, "#", 7.0, true, colors::white());
-    layout.text_at(MARGIN_MM + 10.0, lb_y + 5.2, "Vendor", 7.0, true, colors::white());
-    layout.text_at(MARGIN_MM + 52.0, lb_y + 5.2, "Overall", 7.0, true, colors::white());
-    for (i, (_, name)) in pillar_defs.iter().enumerate() {
-        layout.text_at(
-            MARGIN_MM + 68.0 + i as f32 * pillar_col_w,
-            lb_y + 5.2,
-            &truncate(name, 10),
-            6.5,
-            true,
-            colors::white(),
-        );
-    }
-    layout.text_at(status_col + 6.0, lb_y + 5.2, "OK", 7.0, true, colors::white());
-    layout.text_at(status_col + 18.0, lb_y + 5.2, "Part", 7.0, true, colors::white());
-    layout.text_at(status_col + 30.0, lb_y + 5.2, "Gap", 7.0, true, colors::white());
-    layout.text_at(status_col + 42.0, lb_y + 5.2, "Crit", 7.0, true, colors::white());
-    layout.advance(lb_row);
-
-    let show_price = evaluation.procurement.device_count > 0
-        && ranked.iter().any(|r| r.overall_score.annual_cost_per_device.is_some());
-    if show_price {
-        let pr_y = layout.y_top;
-        layout.fill_rect(MARGIN_MM, pr_y, CONTENT_W_MM, lb_row, colors::navy_light());
-        layout.text_at(MARGIN_MM + 10.0, pr_y + 5.2, "Vendor", 7.0, true, colors::white());
-        layout.text_at(MARGIN_MM + 70.0, pr_y + 5.2, "Annual/device", 7.0, true, colors::white());
-        layout.text_at(MARGIN_MM + 110.0, pr_y + 5.2, "Total annual", 7.0, true, colors::white());
-        if evaluation.procurement.use_price_in_ranking {
-            layout.text_at(MARGIN_MM + 150.0, pr_y + 5.2, "Composite", 7.0, true, colors::white());
-        }
-        layout.advance(lb_row);
-        for (i, result) in ranked.iter().enumerate() {
-            let row_y = layout.y_top;
-            if i % 2 == 0 {
-                layout.fill_rect(MARGIN_MM, row_y, CONTENT_W_MM, lb_row, colors::card_bg());
-            }
-            let os = &result.overall_score;
-            layout.text_at(
-                MARGIN_MM + 10.0,
-                row_y + 5.2,
-                &truncate(&result.vendor.name, 22),
-                7.5,
-                false,
-                colors::navy(),
-            );
-            if let Some(cost) = os.annual_cost_per_device {
-                let cur = os.price_currency.as_deref().unwrap_or("USD");
-                layout.text_at(
-                    MARGIN_MM + 70.0,
-                    row_y + 5.2,
-                    &format!("{cur} {cost:.0}"),
-                    7.0,
-                    false,
-                    colors::text(),
-                );
-            }
-            if let Some(total) = os.total_annual_cost {
-                let cur = os.price_currency.as_deref().unwrap_or("USD");
-                layout.text_at(
-                    MARGIN_MM + 110.0,
-                    row_y + 5.2,
-                    &format!("{cur} {total:.0}"),
-                    7.0,
-                    false,
-                    colors::text(),
-                );
-            }
-            if let Some(comp) = os.composite_score_percent {
-                layout.text_at(
-                    MARGIN_MM + 150.0,
-                    row_y + 5.2,
-                    &format!("{comp:.1}%"),
-                    7.5,
-                    true,
-                    score_rgb(comp),
-                );
-            }
-            layout.advance(lb_row);
-        }
-        layout.advance(3.0);
-    }
-
-    for (i, result) in ranked.iter().enumerate() {
-        let row_y = layout.y_top;
-        layout.ensure(lb_row);
-        if i % 2 == 0 {
-            layout.fill_rect(MARGIN_MM, row_y, CONTENT_W_MM, lb_row, colors::card_bg());
-        }
-        let score = result.overall_score.overall_score_percent;
-        let (ok, part, gap, untested) = vendor_status_totals(result);
-        let _ = untested;
-        layout.text_at(
-            MARGIN_MM + 2.0,
-            row_y + 5.2,
-            &format!("{}", i + 1),
-            7.5,
-            true,
-            colors::muted(),
-        );
-        layout.text_at(
-            MARGIN_MM + 10.0,
-            row_y + 5.2,
-            &truncate(&result.vendor.name, 22),
-            7.5,
-            true,
-            colors::navy(),
-        );
-        layout.text_at(
-            MARGIN_MM + 52.0,
-            row_y + 5.2,
-            &format!("{score:.0}%"),
-            7.5,
-            true,
-            score_rgb(score),
-        );
-        for (i, (pid, _)) in pillar_defs.iter().enumerate() {
-            let pct = pillar_score_percent(result, pid);
-            layout.text_at(
-                MARGIN_MM + 68.0 + i as f32 * pillar_col_w,
-                row_y + 5.2,
-                &format!("{pct:.0}%"),
-                7.0,
-                false,
-                score_rgb(pct),
-            );
-        }
-        layout.text_at(status_col + 6.0, row_y + 5.2, &format!("{ok}"), 7.0, false, colors::compliant());
-        layout.text_at(status_col + 18.0, row_y + 5.2, &format!("{part}"), 7.0, false, colors::partial());
-        layout.text_at(status_col + 30.0, row_y + 5.2, &format!("{gap}"), 7.0, false, colors::gap());
-        let crit = result.overall_score.critical_gaps.len();
-        layout.text_at(
-            status_col + 42.0,
-            row_y + 5.2,
-            &format!("{crit}"),
-            7.0,
-            true,
-            if crit > 0 { colors::gap() } else { colors::muted() },
-        );
-        layout.advance(lb_row);
-    }
-    layout.advance(4.0);
+        .unwrap_or_else(|| {
+            bundle
+                .pillars
+                .iter()
+                .map(|p| (p.id.as_str().to_string(), p.name.clone()))
+                .collect()
+        });
 
     layout.subheading("Pillar leaders");
     for (pid, name) in &pillar_defs {
@@ -746,37 +704,19 @@ pub fn render_pdf(
     layout.advance(2.0);
 
     for (rank, result) in ranked.iter().enumerate() {
-        let score = result.overall_score.overall_score_percent;
-        let card_y = layout.y_top;
-        layout.ensure(30.0);
-
-        let notes_lines = result
-            .pillars
-            .iter()
-            .flat_map(|p| &p.requirements)
-            .filter(|r| r.notes.as_ref().is_some_and(|n| !n.trim().is_empty()))
-            .count() as f32;
-        let website_lines = if result.vendor.website.as_ref().is_some_and(|w| !w.is_empty()) {
-            1.0
+        let capability = result.overall_score.overall_score_percent;
+        let display_score = if composite_ranking {
+            result
+                .overall_score
+                .composite_score_percent
+                .unwrap_or(capability)
         } else {
-            0.0
+            capability
         };
-        let card_h = 24.0
-            + website_lines * 4.5
-            + result.pillars.len() as f32 * 8.0
-            + result
-                .pillars
-                .iter()
-                .map(|p| p.requirements.len() as f32 * 5.5)
-                .sum::<f32>()
-            + notes_lines * 4.0
-            + if result.overall_score.critical_gaps.is_empty() {
-                0.0
-            } else {
-                12.0
-            };
+        let card_h = estimate_vendor_card_height(result);
+        layout.ensure(card_h);
+        let card_y = layout.y_top;
 
-        layout.fill_rect(MARGIN_MM, card_y, CONTENT_W_MM, card_h, colors::white());
         layout.fill_rect(MARGIN_MM, card_y, CONTENT_W_MM, card_h, colors::card_bg());
         layout.fill_rect(MARGIN_MM, card_y, 2.5, card_h, colors::cyan());
 
@@ -796,24 +736,40 @@ pub fn render_pdf(
             true,
             colors::navy(),
         );
+        let score_label = if composite_ranking {
+            format!("{display_score:.1}%*")
+        } else {
+            format!("{display_score:.1}%")
+        };
         layout.text_at(
-            MARGIN_MM + CONTENT_W_MM - 28.0,
+            MARGIN_MM + CONTENT_W_MM - 32.0,
             card_y + 6.0,
-            &format!("{score:.1}%"),
+            &score_label,
             13.0,
             true,
-            score_rgb(score),
+            score_rgb(display_score),
         );
 
         let (ok, part, gap, untested) = vendor_status_totals(result);
-        layout.text_at(
-            MARGIN_MM + 6.0,
-            card_y + 12.0,
-            &format!("OK {ok} · Partial {part} · Gap {gap} · Untested {untested}"),
-            7.5,
-            false,
-            colors::muted(),
-        );
+        let mut summary = format!("OK {ok} - Partial {part} - Gap {gap} - Untested {untested}");
+        if let Some(cost) = result.overall_score.annual_cost_per_device {
+            let cur = result
+                .overall_score
+                .price_currency
+                .as_deref()
+                .unwrap_or("USD");
+            summary.push_str(&format!("   {cur} {cost:.0}/device/yr"));
+            if let Some(total) = result.overall_score.total_annual_cost {
+                summary.push_str(&format!(" ({cur} {total:.0} total)"));
+            }
+        }
+        if composite_ranking {
+            summary.push_str(&format!("   Capability {capability:.1}%"));
+            if let Some(ps) = result.overall_score.price_score_percent {
+                summary.push_str(&format!("   Price score {ps:.0}%"));
+            }
+        }
+        layout.text_at(MARGIN_MM + 6.0, card_y + 12.0, &summary, 7.0, false, colors::muted());
 
         let mut inner_y = card_y + 16.5;
         for line in wrap_text(&result.vendor.description, 90) {
@@ -849,13 +805,16 @@ pub fn render_pdf(
             inner_y += 6.0;
 
             for req in &pillar.requirements {
-                layout.ensure(5.0);
                 layout.status_badge(MARGIN_MM + 8.0, inner_y, req.status);
                 let sev_w = layout.severity_badge(MARGIN_MM + 20.0, inner_y, req.severity);
                 layout.text_at(
                     MARGIN_MM + 20.0 + sev_w + 2.0,
                     inner_y + 3.5,
-                    &format!("{} {}", req.requirement_id, truncate(&req.title, 48)),
+                    &format!(
+                        "{} {}",
+                        req.requirement_id,
+                        truncate_chars(&req.title, 52)
+                    ),
                     7.5,
                     false,
                     colors::text(),
@@ -875,7 +834,7 @@ pub fn render_pdf(
 
         if !result.overall_score.critical_gaps.is_empty() {
             let gap_y = inner_y;
-            let gap_h = 8.0 + result.overall_score.critical_gaps.len() as f32 * 4.0;
+            let gap_h = estimate_critical_gaps_height(&result.overall_score.critical_gaps);
             layout.fill_rect(MARGIN_MM + 4.0, gap_y, CONTENT_W_MM - 8.0, gap_h, colors::scope_out_bg());
             layout.text_at(
                 MARGIN_MM + 7.0,
@@ -885,23 +844,25 @@ pub fn render_pdf(
                 true,
                 colors::gap(),
             );
-            for (gi, gap) in result.overall_score.critical_gaps.iter().enumerate() {
-                layout.text_at(
-                    MARGIN_MM + 7.0,
-                    gap_y + 9.0 + gi as f32 * 4.0,
-                    &format!("• {gap}"),
-                    7.5,
-                    false,
-                    colors::gap(),
-                );
+            let mut gap_y_text = gap_y + 9.0;
+            for gap in &result.overall_score.critical_gaps {
+                for line in wrap_text(&format!("- {gap}"), 88) {
+                    layout.text_at(MARGIN_MM + 7.0, gap_y_text, &line, 7.5, false, colors::gap());
+                    gap_y_text += 3.8;
+                }
             }
         }
 
-        layout.y_top = card_y + card_h + 5.0;
+        layout.advance(card_h + 5.0);
     }
 
+    if composite_ranking {
+        layout.paragraph("* Composite score used for ranking (capability + price).");
+    }
+
+    let mut section = 5u8;
     if vsm::any_value_streams(value_streams) {
-        layout.section_heading("5. Value Stream Maps");
+        layout.section_heading(&format!("{section}. Value Stream Maps"));
         layout.paragraph(
             "Process flows documented per vendor: steps, flow types, durations, and authors.",
         );
@@ -919,21 +880,86 @@ pub fn render_pdf(
                 append_vsm_vendor_pdf(&mut layout, &title, &entry.map);
             }
         }
+        section += 1;
     }
 
-    // Footer
+    if vendor_doc::any_vendor_docs(vendor_docs) {
+        layout.section_heading(&format!("{section}. Vendor Documentation"));
+        layout.paragraph(
+            "User-defined per-vendor documentation (e.g. privacy, support). \
+             Informational only — not included in capability scores.",
+        );
+        layout.advance(2.0);
+
+        for result in &evaluation.vendors {
+            let Some(sections) = vendor_docs.get(&result.vendor.id.0) else {
+                continue;
+            };
+            for section in sections {
+                if section.is_empty() {
+                    continue;
+                }
+                layout.subheading(&format!("{} — {}", result.vendor.name, section.name));
+                if let Some(overview) = section.overview.as_deref().filter(|s| !s.trim().is_empty())
+                {
+                    layout.paragraph(overview);
+                }
+                for group in vendor_doc::groups_for_pdf(&section.items) {
+                    let items: Vec<_> = section
+                        .items
+                        .iter()
+                        .filter(|i| {
+                            let g = i
+                                .group
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|s| !s.is_empty());
+                            g.map(|s| s.to_string()) == group
+                        })
+                        .collect();
+                    if items.is_empty() {
+                        continue;
+                    }
+                    if let Some(ref label) = group {
+                        layout.text_block(label, 9.0, true, colors::navy(), 100, 4.5);
+                        layout.advance(1.0);
+                    }
+                    for item in items {
+                        let mut line = item.title.clone();
+                        if let Some(desc) =
+                            item.description.as_deref().filter(|s| !s.trim().is_empty())
+                        {
+                            line.push_str(&format!(" — {desc}"));
+                        }
+                        layout.paragraph(&line);
+                        if let Some(notes) = item.notes.as_deref().filter(|s| !s.trim().is_empty())
+                        {
+                            layout.text_block(
+                                &format!("Notes: {notes}"),
+                                8.0,
+                                false,
+                                colors::muted(),
+                                100,
+                                4.0,
+                            );
+                        }
+                    }
+                    layout.advance(2.0);
+                }
+            }
+        }
+    }
+
     layout.advance(4.0);
-    layout.stroke_line(MARGIN_MM, layout.y_top, MARGIN_MM + CONTENT_W_MM, colors::bar_bg(), 0.4);
-    layout.advance(3.0);
     layout.text_block(
-        "Generated by MAD — Mobile Assessment & Defense. \
-         Scores reflect the active workspace assessments and scoring model at export time.",
+        "Scores reflect workspace assessments and the active scoring/procurement model at export time.",
         7.5,
         false,
         colors::muted(),
         100,
         3.8,
     );
+    layout.draw_page_footer();
 
     let mut buffer = BufWriter::new(Cursor::new(Vec::new()));
     layout
@@ -941,6 +967,224 @@ pub fn render_pdf(
         .save(&mut buffer)
         .map_err(|e| format!("failed to write PDF: {e}"))?;
     Ok(buffer.into_inner().map_err(|e| e.to_string())?.into_inner())
+}
+
+fn uses_composite_ranking(evaluation: &EvaluationReport) -> bool {
+    evaluation.procurement.use_price_in_ranking
+        && evaluation
+            .vendors
+            .iter()
+            .any(|v| v.overall_score.composite_score_percent.is_some())
+}
+
+fn effective_rank_score(result: &EvaluationResult, evaluation: &EvaluationReport) -> f64 {
+    if evaluation.procurement.use_price_in_ranking {
+        if let Some(c) = result.overall_score.composite_score_percent {
+            return c;
+        }
+    }
+    result.overall_score.overall_score_percent
+}
+
+fn rank_vendors<'a>(evaluation: &'a EvaluationReport) -> Vec<&'a EvaluationResult> {
+    let mut ranked: Vec<_> = evaluation.vendors.iter().collect();
+    ranked.sort_by(|a, b| {
+        effective_rank_score(b, evaluation)
+            .partial_cmp(&effective_rank_score(a, evaluation))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    ranked
+}
+
+fn render_comparison_table(
+    layout: &mut PdfLayout,
+    evaluation: &EvaluationReport,
+    ranked: &[&EvaluationResult],
+    composite_ranking: bool,
+) {
+    let pillar_defs: Vec<(String, String)> = ranked
+        .first()
+        .map(|r| {
+            r.pillars
+                .iter()
+                .map(|p| (p.pillar_id.clone(), p.pillar_name.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let show_price = evaluation.procurement.device_count > 0
+        && ranked
+            .iter()
+            .any(|r| r.overall_score.annual_cost_per_device.is_some());
+
+    let status_w = 34.0_f32;
+    let price_w = if show_price { 36.0 } else { 0.0 };
+    let fixed_w = 6.0 + 34.0 + 16.0 + price_w + status_w;
+    let pillar_area = (CONTENT_W_MM - fixed_w).max(20.0);
+    let pillar_count = pillar_defs.len().max(1) as f32;
+    let pillar_col_w = pillar_area / pillar_count;
+
+    let row_h = 7.5_f32;
+    let hdr_y = layout.y_top;
+    layout.fill_rect(MARGIN_MM, hdr_y, CONTENT_W_MM, row_h, colors::navy_light());
+    let mut col = MARGIN_MM + 2.0;
+    layout.text_at(col, hdr_y + 5.0, "#", 6.5, true, colors::white());
+    col += 6.0;
+    layout.text_at(col, hdr_y + 5.0, "Vendor", 6.5, true, colors::white());
+    col += 34.0;
+    let score_hdr = if composite_ranking { "Score*" } else { "Score" };
+    layout.text_at(col, hdr_y + 5.0, score_hdr, 6.5, true, colors::white());
+    col += 16.0;
+    for (_, name) in &pillar_defs {
+        layout.text_at(
+            col,
+            hdr_y + 5.0,
+            &truncate_chars(name, 8),
+            6.0,
+            true,
+            colors::white(),
+        );
+        col += pillar_col_w;
+    }
+    if show_price {
+        layout.text_at(col, hdr_y + 5.0, "$/yr", 6.0, true, colors::white());
+        col += price_w;
+    }
+    layout.text_at(col + 2.0, hdr_y + 5.0, "OK", 6.0, true, colors::white());
+    layout.text_at(col + 10.0, hdr_y + 5.0, "Pt", 6.0, true, colors::white());
+    layout.text_at(col + 18.0, hdr_y + 5.0, "Gp", 6.0, true, colors::white());
+    layout.text_at(col + 26.0, hdr_y + 5.0, "Cr", 6.0, true, colors::white());
+    layout.advance(row_h);
+
+    for (i, result) in ranked.iter().enumerate() {
+        layout.ensure(row_h);
+        let row_y = layout.y_top;
+        if i % 2 == 0 {
+            layout.fill_rect(MARGIN_MM, row_y, CONTENT_W_MM, row_h, colors::card_bg());
+        }
+        let score = effective_rank_score(result, evaluation);
+        let (ok, part, gap, _) = vendor_status_totals(result);
+        let crit = result.overall_score.critical_gaps.len();
+
+        let mut col = MARGIN_MM + 2.0;
+        layout.text_at(col, row_y + 5.0, &format!("{}", i + 1), 6.5, true, colors::muted());
+        col += 6.0;
+        layout.text_at(
+            col,
+            row_y + 5.0,
+            &truncate_chars(&result.vendor.name, 18),
+            6.5,
+            true,
+            colors::navy(),
+        );
+        col += 34.0;
+        layout.text_at(
+            col,
+            row_y + 5.0,
+            &format!("{score:.0}%"),
+            6.5,
+            true,
+            score_rgb(score),
+        );
+        col += 16.0;
+        for (pid, _) in &pillar_defs {
+            let pct = pillar_score_percent(result, pid);
+            layout.text_at(
+                col,
+                row_y + 5.0,
+                &format!("{pct:.0}%"),
+                6.0,
+                false,
+                score_rgb(pct),
+            );
+            col += pillar_col_w;
+        }
+        if show_price {
+            if let Some(cost) = result.overall_score.annual_cost_per_device {
+                let cur = result
+                    .overall_score
+                    .price_currency
+                    .as_deref()
+                    .unwrap_or("USD");
+                layout.text_at(
+                    col,
+                    row_y + 5.0,
+                    &format!("{cur}{cost:.0}"),
+                    6.0,
+                    false,
+                    colors::text(),
+                );
+            }
+            col += price_w;
+        }
+        layout.text_at(col + 2.0, row_y + 5.0, &format!("{ok}"), 6.0, false, colors::compliant());
+        layout.text_at(col + 10.0, row_y + 5.0, &format!("{part}"), 6.0, false, colors::partial());
+        layout.text_at(col + 18.0, row_y + 5.0, &format!("{gap}"), 6.0, false, colors::gap());
+        layout.text_at(
+            col + 26.0,
+            row_y + 5.0,
+            &format!("{crit}"),
+            6.0,
+            true,
+            if crit > 0 { colors::gap() } else { colors::muted() },
+        );
+        layout.advance(row_h);
+    }
+}
+
+fn estimate_vendor_card_height(result: &EvaluationResult) -> f32 {
+    let mut h = 24.0;
+    h += wrap_text(&result.vendor.description, 90).len() as f32 * 4.0;
+    if result.vendor.website.as_ref().is_some_and(|w| !w.is_empty()) {
+        h += 4.5;
+    }
+    h += 2.0;
+    for pillar in &result.pillars {
+        h += 6.0;
+        for req in &pillar.requirements {
+            h += 5.0;
+            if let Some(notes) = &req.notes {
+                if !notes.trim().is_empty() {
+                    h += wrap_text(&format!("Note: {}", notes.trim()), 88).len() as f32 * 3.8;
+                }
+            }
+        }
+        h += 1.5;
+    }
+    if !result.overall_score.critical_gaps.is_empty() {
+        h += estimate_critical_gaps_height(&result.overall_score.critical_gaps);
+    }
+    h.max(28.0)
+}
+
+fn estimate_critical_gaps_height(gaps: &[String]) -> f32 {
+    let mut h = 8.0;
+    for gap in gaps {
+        h += wrap_text(&format!("- {gap}"), 88).len() as f32 * 3.8;
+    }
+    h.max(10.0)
+}
+
+fn sanitize_pdf_text(s: &str) -> String {
+    s.replace('—', "-")
+        .replace('–', "-")
+        .replace('→', "->")
+        .replace('·', "-")
+        .replace('•', "-")
+        .replace('\u{2018}', "'")
+        .replace('\u{2019}', "'")
+        .replace('\u{201c}', "\"")
+        .replace('\u{201d}', "\"")
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    let trimmed = s.trim();
+    let count = trimmed.chars().count();
+    if count <= max_chars {
+        return trimmed.to_string();
+    }
+    let cut: String = trimmed.chars().take(max_chars.saturating_sub(1)).collect();
+    format!("{cut}...")
 }
 
 fn rect_points(x: f32, y_top: f32, w: f32, h: f32) -> Vec<(Point, bool)> {
@@ -960,12 +1204,12 @@ fn append_vsm_vendor_pdf(layout: &mut PdfLayout, vendor_name: &str, map: &ValueS
 
     layout.subheading(vendor_name);
     layout.paragraph(&format!(
-        "{} nodes · {} flows{}",
+        "{} nodes, {} flows{}",
         map.nodes.len(),
         map.edges.len(),
         if timeline.stats.total_minutes > 0.0 {
             format!(
-                " · {} total · {}% timed",
+                ", {} total lead time, {}% of flows timed",
                 vsm::format_duration(timeline.stats.total_minutes, false),
                 timeline.stats.coverage_percent
             )
@@ -974,55 +1218,185 @@ fn append_vsm_vendor_pdf(layout: &mut PdfLayout, vendor_name: &str, map: &ValueS
         }
     ));
 
+    if !map.nodes.is_empty() {
+        draw_vsm_diagram_pdf(layout, map, &flow_types);
+    }
+
+    if !flow_types.is_empty() {
+        let legend: String = flow_types
+            .iter()
+            .map(|ft| {
+                let style = if ft.dashed { "dashed" } else { "solid" };
+                format!("{} ({style})", ft.label)
+            })
+            .collect::<Vec<_>>()
+            .join("  |  ");
+        layout.paragraph(&format!("Flow types: {legend}"));
+    }
+
+    if !map.nodes.is_empty() {
+        layout.text_at(MARGIN_MM, layout.y_top, "Process steps", 9.0, true, colors::navy());
+        layout.advance(5.0);
+        let row_h = 5.5;
+        let hdr_y = layout.y_top;
+        layout.fill_rect(MARGIN_MM, hdr_y, CONTENT_W_MM, row_h, colors::navy_light());
+        layout.text_at(MARGIN_MM + 2.0, hdr_y + 4.0, "Step", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 52.0, hdr_y + 4.0, "Type", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 78.0, hdr_y + 4.0, "Author", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 118.0, hdr_y + 4.0, "Lead", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 142.0, hdr_y + 4.0, "Cycle", 7.0, true, colors::white());
+        layout.advance(row_h);
+
+        let mut nodes = map.nodes.clone();
+        nodes.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+        for (i, node) in nodes.iter().enumerate() {
+            layout.ensure(row_h);
+            let row_y = layout.y_top;
+            if i % 2 == 0 {
+                layout.fill_rect(MARGIN_MM, row_y, CONTENT_W_MM, row_h, colors::card_bg());
+            }
+            let lead = node
+                .lead_time_minutes
+                .filter(|v| *v > 0.0)
+                .map(|v| vsm::format_duration(v, true))
+                .unwrap_or_else(|| "-".into());
+            let cycle = node
+                .cycle_time_minutes
+                .filter(|v| *v > 0.0)
+                .map(|v| vsm::format_duration(v, true))
+                .unwrap_or_else(|| "-".into());
+            layout.text_at(
+                MARGIN_MM + 2.0,
+                row_y + 4.0,
+                &truncate_chars(&node.label, 24),
+                7.0,
+                false,
+                colors::text(),
+            );
+            layout.text_at(
+                MARGIN_MM + 52.0,
+                row_y + 4.0,
+                vsm::node_type_label(&node.node_type),
+                7.0,
+                false,
+                colors::muted(),
+            );
+            layout.text_at(
+                MARGIN_MM + 78.0,
+                row_y + 4.0,
+                &truncate_chars(node.author.as_deref().unwrap_or("-"), 18),
+                7.0,
+                false,
+                colors::text(),
+            );
+            layout.text_at(MARGIN_MM + 118.0, row_y + 4.0, &lead, 7.0, false, colors::text());
+            layout.text_at(MARGIN_MM + 142.0, row_y + 4.0, &cycle, 7.0, false, colors::text());
+            layout.advance(row_h);
+        }
+        layout.advance(2.0);
+    }
+
     if !timeline.segments.is_empty() {
         layout.text_at(MARGIN_MM, layout.y_top, "Process timeline", 9.0, true, colors::navy());
         layout.advance(5.0);
         let row_h = 5.5;
-        for segment in &timeline.segments {
+        let hdr_y = layout.y_top;
+        layout.fill_rect(MARGIN_MM, hdr_y, CONTENT_W_MM, row_h, colors::navy_light());
+        layout.text_at(MARGIN_MM + 2.0, hdr_y + 4.0, "From", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 42.0, hdr_y + 4.0, "To", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 82.0, hdr_y + 4.0, "Flow", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 118.0, hdr_y + 4.0, "Duration", 7.0, true, colors::white());
+        layout.text_at(MARGIN_MM + 148.0, hdr_y + 4.0, "Author", 7.0, true, colors::white());
+        layout.advance(row_h);
+
+        for (i, segment) in timeline.segments.iter().enumerate() {
             layout.ensure(row_h);
+            let row_y = layout.y_top;
+            if i % 2 == 0 {
+                layout.fill_rect(MARGIN_MM, row_y, CONTENT_W_MM, row_h, colors::card_bg());
+            }
             let ft = vsm::flow_type_config(&segment.edge_type, &flow_types);
             let duration = if segment.duration_minutes > 0.0 {
                 vsm::format_duration(segment.duration_minutes, true)
             } else {
-                "—".into()
+                "-".into()
             };
-            let line = format!(
-                "{} → {} · {} · {}",
-                truncate(&segment.from_label, 18),
-                truncate(&segment.to_label, 18),
-                truncate(&ft.label, 12),
-                duration
+            let author = segment
+                .target_author
+                .as_deref()
+                .or(segment.source_author.as_deref())
+                .unwrap_or("-");
+            layout.text_at(
+                MARGIN_MM + 2.0,
+                row_y + 4.0,
+                &truncate_chars(&segment.from_label, 16),
+                7.0,
+                false,
+                colors::text(),
             );
-            layout.text_at(MARGIN_MM + 2.0, layout.y_top + 4.0, &line, 7.5, false, colors::text());
+            layout.text_at(
+                MARGIN_MM + 42.0,
+                row_y + 4.0,
+                &truncate_chars(&segment.to_label, 16),
+                7.0,
+                false,
+                colors::text(),
+            );
+            layout.text_at(
+                MARGIN_MM + 82.0,
+                row_y + 4.0,
+                &truncate_chars(&ft.label, 12),
+                7.0,
+                false,
+                colors::text(),
+            );
+            layout.text_at(MARGIN_MM + 118.0, row_y + 4.0, &duration, 7.0, false, colors::text());
+            layout.text_at(
+                MARGIN_MM + 148.0,
+                row_y + 4.0,
+                &truncate_chars(author, 14),
+                7.0,
+                false,
+                colors::muted(),
+            );
             layout.advance(row_h);
         }
 
         if timeline.stats.total_minutes > 0.0 {
             layout.advance(2.0);
-            layout.text_at(MARGIN_MM, layout.y_top, "Gantt (relative)", 8.5, true, colors::navy());
+            layout.text_at(MARGIN_MM, layout.y_top, "Timeline (proportional)", 8.5, true, colors::navy());
             layout.advance(5.0);
             let bar_h = 4.5;
-            let track_w = CONTENT_W_MM - 40.0;
+            let track_w = CONTENT_W_MM - 48.0;
             for segment in &timeline.segments {
                 if segment.duration_minutes <= 0.0 {
                     continue;
                 }
-                layout.ensure(bar_h + 1.0);
+                layout.ensure(bar_h + 1.5);
                 let row_y = layout.y_top;
                 let label = format!(
-                    "{}→{}",
-                    truncate(&segment.from_label, 10),
-                    truncate(&segment.to_label, 10)
+                    "{} -> {}",
+                    truncate_chars(&segment.from_label, 10),
+                    truncate_chars(&segment.to_label, 10)
                 );
                 layout.text_at(MARGIN_MM, row_y + 3.8, &label, 6.5, false, colors::muted());
-                let track_x = MARGIN_MM + 38.0;
+                let track_x = MARGIN_MM + 46.0;
                 layout.fill_rect(track_x, row_y, track_w, bar_h, colors::bar_bg());
-                let fill_w = track_w * (segment.percent_of_total as f32 / 100.0).max(0.02);
+                let pct = (segment.duration_minutes / timeline.stats.total_minutes) as f32;
+                let fill_w = (track_w * pct).max(1.5);
                 let ft = vsm::flow_type_config(&segment.edge_type, &flow_types);
                 let bar_color = vsm::hex_to_rgb(&ft.color)
                     .map(|(r, g, b)| Rgb::new(r, g, b, None))
                     .unwrap_or_else(colors::cyan);
                 layout.fill_rect(track_x, row_y, fill_w, bar_h, bar_color);
+                layout.text_at(
+                    track_x + fill_w + 1.5,
+                    row_y + 3.8,
+                    &vsm::format_duration(segment.duration_minutes, true),
+                    6.5,
+                    false,
+                    colors::text(),
+                );
                 layout.advance(bar_h + 1.5);
             }
         }
@@ -1033,13 +1407,95 @@ fn append_vsm_vendor_pdf(layout: &mut PdfLayout, vendor_name: &str, map: &ValueS
         layout.text_at(MARGIN_MM, layout.y_top, "Messages", 9.0, true, colors::navy());
         layout.advance(5.0);
         for msg in &map.messages {
-            for line in wrap_text(&format!("• {}", msg.text.trim()), 95) {
+            for line in wrap_text(&format!("- {}", msg.text.trim()), 95) {
                 layout.paragraph(&line);
             }
         }
     }
 
     layout.advance(4.0);
+}
+
+fn draw_vsm_diagram_pdf(
+    layout: &mut PdfLayout,
+    map: &ValueStreamMap,
+    flow_types: &[vsm::ResolvedFlowType],
+) {
+    use crate::value_stream::VsmNode;
+
+    let min_x = map.nodes.iter().map(|n| n.x).fold(f64::INFINITY, f64::min);
+    let min_y = map.nodes.iter().map(|n| n.y).fold(f64::INFINITY, f64::min);
+    let max_x = map
+        .nodes
+        .iter()
+        .map(|n| n.x + n.width)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let max_y = map
+        .nodes
+        .iter()
+        .map(|n| n.y + n.height)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let content_w = (max_x - min_x).max(1.0);
+    let content_h = (max_y - min_y).max(1.0);
+
+    let diagram_h = 42.0_f32;
+    layout.ensure(diagram_h + 4.0);
+    let box_y = layout.y_top;
+    layout.fill_rect(MARGIN_MM, box_y, CONTENT_W_MM, diagram_h, colors::card_bg());
+    layout.stroke_rect(MARGIN_MM, box_y, CONTENT_W_MM, diagram_h, colors::bar_bg(), 0.4);
+
+    let inner_w = CONTENT_W_MM as f64 - 6.0;
+    let inner_h = diagram_h as f64 - 6.0;
+    let scale = (inner_w / content_w).min(inner_h / content_h);
+    let offset_x = MARGIN_MM as f64 + 3.0 + (inner_w - content_w * scale) / 2.0;
+    let offset_y = box_y as f64 + 3.0 + (inner_h - content_h * scale) / 2.0;
+
+    let node_by_id: HashMap<String, &VsmNode> =
+        map.nodes.iter().map(|n| (n.id.clone(), n)).collect();
+
+    let to_pdf = |nx: f64, ny: f64| -> (f32, f32) {
+        (
+            (offset_x + (nx - min_x) * scale) as f32,
+            (offset_y + (ny - min_y) * scale) as f32,
+        )
+    };
+
+    for edge in &map.edges {
+        let Some(from) = node_by_id.get(&edge.from) else {
+            continue;
+        };
+        let Some(to) = node_by_id.get(&edge.to) else {
+            continue;
+        };
+        let (x1, y1) = to_pdf(from.x + from.width, from.y + from.height / 2.0);
+        let (x2, y2) = to_pdf(to.x, to.y + to.height / 2.0);
+        let ft = vsm::flow_type_config(&edge.edge_type, flow_types);
+        let color = vsm::hex_to_rgb(&ft.color)
+            .map(|(r, g, b)| Rgb::new(r, g, b, None))
+            .unwrap_or_else(colors::muted);
+        layout.stroke_line_xy(x1, y1, x2, y2, color, 0.6);
+    }
+
+    for node in &map.nodes {
+        let (x, y) = to_pdf(node.x, node.y);
+        let w = (node.width * scale) as f32;
+        let h = (node.height * scale).max(6.0) as f32;
+        let accent = vsm::hex_to_rgb(vsm::node_accent_color(&node.node_type))
+            .map(|(r, g, b)| Rgb::new(r, g, b, None))
+            .unwrap_or_else(colors::cyan);
+        layout.fill_rect(x, y, w, h, colors::white());
+        layout.stroke_rect(x, y, w, h, accent, 0.8);
+        layout.text_at(
+            x + 1.5,
+            y + h / 2.0 + 1.0,
+            &truncate_chars(&node.label, 16),
+            6.0,
+            true,
+            colors::navy(),
+        );
+    }
+
+    layout.advance(diagram_h + 4.0);
 }
 
 fn vendor_status_totals(result: &EvaluationResult) -> (usize, usize, usize, usize) {
@@ -1082,21 +1538,14 @@ fn score_rgb(pct: f64) -> Rgb {
 fn estimate_req_height(req: &crate::pillar::Requirement) -> f32 {
     let desc_lines = wrap_text(req.description.trim(), 95).len() as f32;
     let mut h = 14.0 + desc_lines * 4.0;
-    if req.evaluation_method.is_some() {
-        h += 5.0;
+    h += 4.5;
+    if let Some(m) = &req.evaluation_method {
+        h += wrap_text(&format!("Test: {}", m.trim()), 92).len() as f32 * 3.8;
     }
-    if req.technical_criteria.is_some() {
-        h += 5.0;
+    if let Some(tc) = &req.technical_criteria {
+        h += wrap_text(&format!("Criteria: {}", tc.trim()), 92).len() as f32 * 3.8;
     }
     h.max(18.0)
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max.saturating_sub(1)])
-    }
 }
 
 fn wrap_text(text: &str, max_chars: usize) -> Vec<String> {
@@ -1145,7 +1594,8 @@ mod tests {
         let evaluation = evaluator.evaluate().expect("eval");
         let logo = std::path::Path::new("assets/logo.png");
         let options = default_pdf_options(logo.exists().then_some(logo));
-        let pdf = render_pdf(&bundle, &evaluation, &HashMap::new(), &options).expect("pdf");
+        let pdf = render_pdf(&bundle, &evaluation, &HashMap::new(), &HashMap::new(), &options)
+            .expect("pdf");
         assert!(pdf.starts_with(b"%PDF"));
         assert!(pdf.len() > 8_000);
     }

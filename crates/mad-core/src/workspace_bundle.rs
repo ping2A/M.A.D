@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::vendor_doc::migrate_legacy_vendor_privacy;
 use crate::vendor_set::{sanitize_assessment, VendorImportMode, VendorImportResult, VendorSetFile};
 use crate::workspace::EvaluationWorkspace;
 
@@ -18,6 +19,7 @@ pub struct WorkspaceImportResult {
     pub requirements: usize,
     pub vendors: usize,
     pub assessments: usize,
+    pub value_stream_maps: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vendor_result: Option<VendorImportResult>,
 }
@@ -84,6 +86,7 @@ impl EvaluationWorkspace {
             requirements: self.total_requirements(),
             vendors: self.vendors.len(),
             assessments: self.assessments.len(),
+            value_stream_maps: self.value_stream_map_count(),
             vendor_result,
         }
     }
@@ -92,6 +95,7 @@ impl EvaluationWorkspace {
 pub fn parse_workspace_import(json: &str) -> Result<ParsedWorkspaceImport, String> {
     let value: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("invalid JSON: {e}"))?;
+    let value = migrate_legacy_vendor_privacy(value);
 
     if value.get("workspace").is_some() {
         let bundle: WorkspaceBundle =
@@ -134,5 +138,56 @@ mod tests {
         let mut target = EvaluationWorkspace::from_policy(&bundle);
         target.import_parsed(parsed, VendorImportMode::Replace);
         assert_eq!(target.policy_version, "test");
+    }
+
+    #[test]
+    fn roundtrip_bundle_with_value_streams() {
+        use crate::value_stream::{ValueStreamEntry, ValueStreamMap, VsmNode, VsmNodeType};
+
+        let dir = std::path::Path::new("policies");
+        if !dir.exists() {
+            return;
+        }
+        let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let mut ws = EvaluationWorkspace::from_policy(&bundle);
+        let vendor_id = ws
+            .vendors
+            .first()
+            .map(|v| v.id.0.clone())
+            .unwrap_or_else(|| "vendor-a".into());
+        ws.value_streams.insert(
+            vendor_id.clone(),
+            vec![ValueStreamEntry {
+                id: "vsm-test".into(),
+                name: "Enrollment".into(),
+                map: ValueStreamMap {
+                    nodes: vec![VsmNode {
+                        id: "n1".into(),
+                        label: "Start".into(),
+                        node_type: VsmNodeType::Process,
+                        x: 0.0,
+                        y: 0.0,
+                        width: 180.0,
+                        height: 72.0,
+                        notes: None,
+                        role: None,
+                        lead_time_minutes: None,
+                        cycle_time_minutes: None,
+                        author: None,
+                    }],
+                    edges: vec![],
+                    messages: vec![],
+                    flow_types: vec![],
+                },
+            }],
+        );
+
+        let json = serde_json::to_string(&ws.export_bundle("vsm-test")).expect("serialize");
+        let parsed = parse_workspace_import(&json).expect("parse");
+        let mut target = EvaluationWorkspace::from_policy(&bundle);
+        target.import_parsed(parsed, VendorImportMode::Replace);
+        let streams = target.value_streams.get(&vendor_id).expect("streams");
+        assert_eq!(streams.len(), 1);
+        assert_eq!(streams[0].name, "Enrollment");
     }
 }

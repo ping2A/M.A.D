@@ -11,6 +11,7 @@ import type {
   VendorImportMode,
   VendorImportResult,
   ValueStreamMap,
+  VendorDocSection,
   VendorSetFile,
   WorkspaceImportResult,
 } from "../types";
@@ -250,6 +251,50 @@ export function deleteValueStream(
 ): Promise<EvaluationWorkspace> {
   return fetchJson<EvaluationWorkspace>(
     `/api/workspace/vendors/${encodeURIComponent(vendorId)}/value-streams/${encodeURIComponent(streamId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function createVendorDoc(
+  vendorId: string,
+  name: string,
+): Promise<EvaluationWorkspace> {
+  return fetchJson<EvaluationWorkspace>(
+    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/docs`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    },
+  );
+}
+
+export function updateVendorDoc(
+  vendorId: string,
+  docId: string,
+  section: VendorDocSection,
+): Promise<EvaluationWorkspace> {
+  return fetchJson<EvaluationWorkspace>(
+    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/docs/${encodeURIComponent(docId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: section.name,
+        color: section.color,
+        overview: section.overview,
+        items: section.items,
+      }),
+    },
+  );
+}
+
+export function deleteVendorDoc(
+  vendorId: string,
+  docId: string,
+): Promise<EvaluationWorkspace> {
+  return fetchJson<EvaluationWorkspace>(
+    `/api/workspace/vendors/${encodeURIComponent(vendorId)}/docs/${encodeURIComponent(docId)}`,
     { method: "DELETE" },
   );
 }

@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::evaluation::EvaluationReport;
 use crate::policy::PolicyBundle;
-use crate::report::vsm;
+use crate::report::{vendor_doc, vsm};
+use crate::vendor_doc::VendorDocSection;
 use crate::value_stream::ValueStreamEntry;
 use crate::vendor::ComplianceStatus;
 
@@ -27,6 +28,7 @@ pub fn render_html(
     bundle: &PolicyBundle,
     evaluation: &EvaluationReport,
     value_streams: &HashMap<String, Vec<ValueStreamEntry>>,
+    vendor_docs: &HashMap<String, Vec<VendorDocSection>>,
     options: &HtmlReportOptions,
 ) -> String {
     let generated_at = options
@@ -230,9 +232,10 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
     }
     out.push_str("</section>\n");
 
+    let mut section = 5u8;
     if vsm::any_value_streams(value_streams) {
         out.push_str("<section class=\"card vsm-report\">\n");
-        out.push_str("  <h2>5. Value Stream Maps</h2>\n");
+        out.push_str(&format!("  <h2>{section}. Value Stream Maps</h2>\n"));
         out.push_str("  <p class=\"muted\">Process flows documented per vendor during evaluation — nodes, \
             flow types, durations, and responsible authors.</p>\n");
         for result in &evaluation.vendors {
@@ -247,6 +250,24 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
                         ));
                     }
                 }
+            }
+        }
+        out.push_str("</section>\n");
+        section += 1;
+    }
+
+    if vendor_doc::any_vendor_docs(vendor_docs) {
+        out.push_str("<section class=\"card vendor-doc-report\">\n");
+        out.push_str(&format!("  <h2>{section}. Vendor Documentation</h2>\n"));
+        out.push_str("  <p class=\"muted\">User-defined per-vendor documentation (e.g. privacy, support). \
+            Informational only — not included in capability scores.</p>\n");
+        for result in &evaluation.vendors {
+            if let Some(sections) = vendor_docs.get(&result.vendor.id.0) {
+                out.push_str(&vendor_doc::render_all_vendor_docs_html(
+                    &result.vendor.name,
+                    sections,
+                    escape_html,
+                ));
             }
         }
         out.push_str("</section>\n");
@@ -411,6 +432,15 @@ body { font-family: var(--font); color: var(--text); background: var(--bg); line
 .vsm-gantt-bar { height: 100%; border-radius: 4px; min-width: 2px; }
 .vsm-gantt-dur { font-family: var(--mono); font-size: 0.75rem; color: var(--navy); }
 .vsm-messages { padding-left: 1.25rem; font-size: 0.85rem; color: var(--muted); }
+.vendor-doc-report-card {
+  border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+}
+.vendor-doc-report-card h3 { color: var(--navy); margin-bottom: 0.5rem; }
+.vendor-doc-report-card h4 { color: var(--navy); font-size: 0.9rem; margin: 1rem 0 0.5rem; }
+.vendor-doc-item-list { list-style: none; padding: 0; margin: 0; }
+.vendor-doc-item { padding: 0.65rem 0; border-bottom: 1px solid #eef1f5; font-size: 0.9rem; }
+.vendor-doc-item:last-child { border-bottom: none; }
+.vendor-doc-notes { display: block; margin-top: 0.35rem; font-size: 0.85rem; color: var(--navy); }
 @media print {
   body { background: white; }
   .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }

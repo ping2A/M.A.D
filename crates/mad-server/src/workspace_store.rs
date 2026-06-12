@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 
-use mad_core::{evaluation::sample_vendors, EvaluationWorkspace, PolicyBundle};
+use mad_core::{
+    evaluation::sample_vendors, migrate_legacy_vendor_privacy, EvaluationWorkspace, PolicyBundle,
+};
 use tokio::sync::RwLock;
 
 pub struct WorkspaceStore {
@@ -12,10 +14,21 @@ impl WorkspaceStore {
     pub async fn load(policy: &PolicyBundle, path: PathBuf) -> Self {
         let workspace = if path.exists() {
             match std::fs::read_to_string(&path) {
-                Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|e| {
-                    tracing::warn!("failed to parse workspace, using defaults: {e}");
-                    default_workspace(policy)
-                }),
+                Ok(contents) => {
+                    match serde_json::from_str::<serde_json::Value>(&contents) {
+                        Ok(value) => {
+                            let migrated = migrate_legacy_vendor_privacy(value);
+                            serde_json::from_value(migrated).unwrap_or_else(|e| {
+                                tracing::warn!("failed to parse workspace, using defaults: {e}");
+                                default_workspace(policy)
+                            })
+                        }
+                        Err(e) => {
+                            tracing::warn!("failed to parse workspace JSON, using defaults: {e}");
+                            default_workspace(policy)
+                        }
+                    }
+                }
                 Err(e) => {
                     tracing::warn!("failed to read workspace: {e}");
                     default_workspace(policy)

@@ -1,11 +1,13 @@
 mod html;
 mod pdf;
+pub mod vendor_doc;
 pub mod vsm;
 
 use std::collections::HashMap;
 
 use crate::evaluation::EvaluationReport;
 use crate::policy::PolicyBundle;
+use crate::vendor_doc::VendorDocSection;
 use crate::value_stream::ValueStreamEntry;
 
 pub use html::{load_logo_data_uri, render_html, HtmlReportOptions};
@@ -16,6 +18,7 @@ pub fn render_markdown(
     bundle: &PolicyBundle,
     evaluation: &EvaluationReport,
     value_streams: &HashMap<String, Vec<ValueStreamEntry>>,
+    vendor_docs: &HashMap<String, Vec<VendorDocSection>>,
 ) -> String {
     let mut out = String::new();
 
@@ -154,9 +157,10 @@ VendorAssessment (per requirement status)  →  EvaluationReport\n\
         }
     }
 
+    let mut section = 5u8;
     if vsm::any_value_streams(value_streams) {
         out.push_str("---\n\n");
-        out.push_str("## 5. Value Stream Maps\n\n");
+        out.push_str(&format!("## {section}. Value Stream Maps\n\n"));
         out.push_str(
             "Process flow diagrams captured during vendor evaluation. Durations are cumulative \
              lead times along each flow.\n\n",
@@ -169,6 +173,24 @@ VendorAssessment (per requirement status)  →  EvaluationReport\n\
                         out.push_str(&vsm::render_vsm_markdown_section(&title, &entry.map));
                     }
                 }
+            }
+        }
+        section += 1;
+    }
+
+    if vendor_doc::any_vendor_docs(vendor_docs) {
+        out.push_str("---\n\n");
+        out.push_str(&format!("## {section}. Vendor Documentation\n\n"));
+        out.push_str(
+            "User-defined per-vendor documentation (e.g. privacy, support, compliance). \
+             Informational only — not included in capability scores.\n\n",
+        );
+        for result in &evaluation.vendors {
+            if let Some(sections) = vendor_docs.get(&result.vendor.id.0) {
+                out.push_str(&vendor_doc::render_all_vendor_docs_markdown(
+                    &result.vendor.name,
+                    sections,
+                ));
             }
         }
     }

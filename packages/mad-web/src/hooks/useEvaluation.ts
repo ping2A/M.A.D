@@ -18,6 +18,9 @@ import {
   createValueStream,
   deleteValueStream,
   updateValueStreamEntry,
+  createVendorDoc,
+  deleteVendorDoc,
+  updateVendorDoc,
   updateRequirement,
   updateScoring,
   updateVendor,
@@ -34,6 +37,7 @@ import type {
   VendorImportMode,
   VendorImportResult,
   ValueStreamMap,
+  VendorDocSection,
   VendorSetFile,
 } from "../types";
 import { STATUS_CYCLE } from "../types";
@@ -147,6 +151,10 @@ export function useEvaluation() {
     setPolicy((prev) => (prev ? { ...prev, value_streams } : prev));
   };
 
+  const syncVendorDocs = (vendor_docs: PolicySummary["vendor_docs"]) => {
+    setPolicy((prev) => (prev ? { ...prev, vendor_docs } : prev));
+  };
+
   const handleUpdateValueStream = async (
     vendorId: string,
     streamId: string,
@@ -192,6 +200,51 @@ export function useEvaluation() {
     }
   };
 
+  const handleUpdateVendorDoc = async (
+    vendorId: string,
+    docId: string,
+    name: string,
+    section: Omit<VendorDocSection, "id" | "name">,
+  ) => {
+    setSaving(true);
+    try {
+      const ws = await updateVendorDoc(vendorId, docId, { id: docId, name, ...section });
+      syncVendorDocs(ws.vendor_docs ?? {});
+    } catch (err) {
+      await refresh();
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCreateVendorDoc = async (vendorId: string, name: string) => {
+    setSaving(true);
+    try {
+      const ws = await createVendorDoc(vendorId, name);
+      syncVendorDocs(ws.vendor_docs ?? {});
+      return ws;
+    } catch (err) {
+      await refresh();
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteVendorDoc = async (vendorId: string, docId: string) => {
+    setSaving(true);
+    try {
+      const ws = await deleteVendorDoc(vendorId, docId);
+      syncVendorDocs(ws.vendor_docs ?? {});
+    } catch (err) {
+      await refresh();
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleExportWorkspace = async () => {
     await exportWorkspaceJson();
   };
@@ -210,6 +263,11 @@ export function useEvaluation() {
         pillars: result.pillars,
         requirements: result.requirements,
         vendors: result.vendors,
+        valueStreamMaps: result.value_stream_maps,
+        vendorVsmImported: result.vendor_result?.value_streams_imported,
+        vendorDocsImported:
+          result.vendor_result?.vendor_docs_imported ??
+          result.vendor_result?.privacy_profiles_imported,
       };
     } finally {
       setSaving(false);
@@ -253,7 +311,11 @@ export function useEvaluation() {
     updateValueStream: handleUpdateValueStream,
     createValueStream: handleCreateValueStream,
     deleteValueStream: handleDeleteValueStream,
+    updateVendorDoc: handleUpdateVendorDoc,
+    createVendorDoc: handleCreateVendorDoc,
+    deleteVendorDoc: handleDeleteVendorDoc,
     valueStreams: policy?.value_streams ?? {},
+    vendorDocs: policy?.vendor_docs ?? {},
     exportWorkspace: handleExportWorkspace,
     exportVendors: handleExportVendors,
     importWorkspace: handleImportWorkspace,

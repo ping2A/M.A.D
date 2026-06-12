@@ -18,7 +18,15 @@ interface WorkspaceDataPanelProps {
   onImportWorkspace: (
     json: string,
     vendorMode: VendorImportMode,
-  ) => Promise<{ kind: string; pillars: number; requirements: number; vendors: number }>;
+  ) => Promise<{
+    kind: string;
+    pillars: number;
+    requirements: number;
+    vendors: number;
+    valueStreamMaps: number;
+    vendorVsmImported?: number;
+    vendorDocsImported?: number;
+  }>;
   stats?: { pillars: number; requirements: number; vendors: number };
 }
 
@@ -61,11 +69,18 @@ export function WorkspaceDataPanel({
         if (!confirm(t.workspaceData.importFullConfirm)) return;
         const result = await onImportWorkspace(text, "replace");
         setLastMessage(
-          format(t.workspaceData.importFullSuccess, {
-            pillars: result.pillars,
-            requirements: result.requirements,
-            vendors: result.vendors,
-          }),
+          result.valueStreamMaps > 0
+            ? format(t.workspaceData.importFullSuccessWithVsm, {
+                pillars: result.pillars,
+                requirements: result.requirements,
+                vendors: result.vendors,
+                vsmMaps: result.valueStreamMaps,
+              })
+            : format(t.workspaceData.importFullSuccess, {
+                pillars: result.pillars,
+                requirements: result.requirements,
+                vendors: result.vendors,
+              }),
         );
       } else if (kind === "vendors") {
         const mode = pendingVendorMode.current;
@@ -73,11 +88,37 @@ export function WorkspaceDataPanel({
           return;
         }
         const result = await onImportWorkspace(text, mode);
-        setLastMessage(
-          format(t.workspaceData.importVendorsSuccess, {
-            vendors: result.vendors,
-          }),
-        );
+        const vsmMaps = result.vendorVsmImported ?? 0;
+        const docSections = result.vendorDocsImported ?? 0;
+        if (vsmMaps > 0 && docSections > 0) {
+          setLastMessage(
+            format(t.workspaceData.importVendorsSuccessWithVsmAndDocs, {
+              vendors: result.vendors,
+              vsmMaps,
+              docSections,
+            }),
+          );
+        } else if (vsmMaps > 0) {
+          setLastMessage(
+            format(t.workspaceData.importVendorsSuccessWithVsm, {
+              vendors: result.vendors,
+              vsmMaps,
+            }),
+          );
+        } else if (docSections > 0) {
+          setLastMessage(
+            format(t.workspaceData.importVendorsSuccessWithDocs, {
+              vendors: result.vendors,
+              docSections,
+            }),
+          );
+        } else {
+          setLastMessage(
+            format(t.workspaceData.importVendorsSuccess, {
+              vendors: result.vendors,
+            }),
+          );
+        }
       } else {
         alert(t.workspaceData.importError);
       }

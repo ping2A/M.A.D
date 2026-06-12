@@ -12,6 +12,7 @@ import { StatsBar } from "./components/StatsBar";
 import { TechnicalReport } from "./components/TechnicalReport";
 import { VendorEditor } from "./components/VendorEditor";
 import { ValueStreamView } from "./components/ValueStreamView";
+import { VendorDocView } from "./components/VendorDocView";
 import { VendorScorecard } from "./components/VendorScorecard";
 import { useEvaluation } from "./hooks/useEvaluation";
 import { usePolicyContent } from "./hooks/usePolicyContent";
@@ -26,6 +27,7 @@ type Tab =
   | "compare"
   | "scorecards"
   | "vsm"
+  | "docs"
   | "report";
 
 export default function App() {
@@ -53,7 +55,11 @@ export default function App() {
     updateValueStream,
     createValueStream,
     deleteValueStream,
+    updateVendorDoc,
+    createVendorDoc,
+    deleteVendorDoc,
     valueStreams,
+    vendorDocs,
     exportWorkspace,
     exportVendors,
     importWorkspace,
@@ -80,6 +86,7 @@ export default function App() {
     ["compare", t.tabs.compare],
     ["scorecards", t.tabs.scorecards],
     ["vsm", t.tabs.vsm],
+    ["docs", t.tabs.docs],
     ["overview", t.tabs.overview],
     ["report", t.tabs.report],
   ];
@@ -237,6 +244,17 @@ export default function App() {
                 onSave={updateValueStream}
                 onCreate={createValueStream}
                 onDelete={deleteValueStream}
+              />
+            )}
+
+            {tab === "docs" && displayEvaluation && (
+              <VendorDocView
+                evaluation={displayEvaluation}
+                vendorDocs={vendorDocs}
+                saving={saving}
+                onSave={updateVendorDoc}
+                onCreate={createVendorDoc}
+                onDelete={deleteVendorDoc}
               />
             )}
 

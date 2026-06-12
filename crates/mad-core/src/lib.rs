@@ -3,6 +3,7 @@ pub mod evaluation;
 pub mod pillar;
 pub mod pricing;
 pub mod policy;
+pub mod vendor_doc;
 pub mod report;
 pub mod scoring;
 pub mod value_stream;
@@ -16,6 +17,11 @@ pub use evaluation::{sample_vendors, EvaluationReport, EvaluationResult, Evaluat
 pub use pillar::{Pillar, PillarId, Requirement, RequirementSeverity};
 pub use pricing::{BillingPeriod, ProcurementConfig, VendorPricing};
 pub use policy::PolicyBundle;
+pub use vendor_doc::{
+    dedupe_vendor_doc_item_ids, mdm_privacy_template_section, migrate_legacy_vendor_privacy,
+    new_vendor_doc_id, new_vendor_doc_item_id, normalize_vendor_doc_section, VendorDocItem,
+    VendorDocSection,
+};
 pub use report::{
     default_html_options, default_pdf_options, load_logo_data_uri, render_html, render_markdown,
     render_pdf, HtmlReportOptions, PdfReportOptions,

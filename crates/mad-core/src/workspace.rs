@@ -6,6 +6,7 @@ use crate::pillar::{builtin, Pillar, Requirement, RequirementSeverity};
 use crate::policy::PolicyBundle;
 use crate::pricing::ProcurementConfig;
 use crate::scoring::ScoringConfig;
+use crate::vendor_doc::{deserialize_vendor_docs, normalize_vendor_doc_section, VendorDocSection};
 use crate::value_stream::{deserialize_vendor_value_streams, ValueStreamEntry, ValueStreamMap};
 use crate::vendor::{Vendor, VendorAssessment, VendorId};
 use crate::vendor_set::{
@@ -26,6 +27,9 @@ pub struct EvaluationWorkspace {
     /// vendor_id → value stream maps
     #[serde(default, deserialize_with = "deserialize_vendor_value_streams")]
     pub value_streams: HashMap<String, Vec<ValueStreamEntry>>,
+    /// vendor_id → user-defined documentation sections (not scored)
+    #[serde(default, deserialize_with = "deserialize_vendor_docs")]
+    pub vendor_docs: HashMap<String, Vec<VendorDocSection>>,
 }
 
 impl EvaluationWorkspace {
@@ -45,7 +49,57 @@ impl EvaluationWorkspace {
             vendors: Vec::new(),
             assessments: HashMap::new(),
             value_streams: HashMap::new(),
+            vendor_docs: HashMap::new(),
         }
+    }
+
+    pub fn vendor_docs_for(&self, vendor_id: &str) -> &[VendorDocSection] {
+        self.vendor_docs
+            .get(vendor_id)
+            .map(|sections| sections.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn create_vendor_doc(&mut self, vendor_id: &str, name: impl Into<String>) -> Option<VendorDocSection> {
+        if !self.vendors.iter().any(|v| v.id.0 == vendor_id) {
+            return None;
+        }
+        let section = VendorDocSection::new(name);
+        self.vendor_docs
+            .entry(vendor_id.to_string())
+            .or_default()
+            .push(section.clone());
+        Some(section)
+    }
+
+    pub fn upsert_vendor_doc(&mut self, vendor_id: &str, mut section: VendorDocSection) -> bool {
+        if !self.vendors.iter().any(|v| v.id.0 == vendor_id) {
+            return false;
+        }
+        if section.is_empty() {
+            return self.remove_vendor_doc(vendor_id, &section.id);
+        }
+        normalize_vendor_doc_section(&mut section);
+        let sections = self.vendor_docs.entry(vendor_id.to_string()).or_default();
+        if let Some(existing) = sections.iter_mut().find(|s| s.id == section.id) {
+            *existing = section;
+        } else {
+            sections.push(section);
+        }
+        true
+    }
+
+    pub fn remove_vendor_doc(&mut self, vendor_id: &str, section_id: &str) -> bool {
+        let Some(sections) = self.vendor_docs.get_mut(vendor_id) else {
+            return false;
+        };
+        let before = sections.len();
+        sections.retain(|section| section.id != section_id);
+        let removed = before != sections.len();
+        if sections.is_empty() {
+            self.vendor_docs.remove(vendor_id);
+        }
+        removed
     }
 
     pub fn value_streams_for(&self, vendor_id: &str) -> &[ValueStreamEntry] {
@@ -308,6 +362,7 @@ impl EvaluationWorkspace {
         if self.vendors.len() < before {
             self.assessments.remove(vendor_id);
             self.value_streams.remove(vendor_id);
+            self.vendor_docs.remove(vendor_id);
             true
         } else {
             false
@@ -357,7 +412,17 @@ impl EvaluationWorkspace {
             exported_at,
             self.vendors.clone(),
             self.assessments.clone(),
+            self.value_streams.clone(),
+            self.vendor_docs.clone(),
         )
+    }
+
+    pub fn value_stream_map_count(&self) -> usize {
+        self.value_streams.values().map(|entries| entries.len()).sum()
+    }
+
+    pub fn vendor_doc_section_count(&self) -> usize {
+        self.vendor_docs.values().map(|sections| sections.len()).sum()
     }
 
     pub fn import_vendor_set(
@@ -371,12 +436,19 @@ impl EvaluationWorkspace {
             updated: 0,
             skipped: 0,
             removed: 0,
+            value_streams_imported: 0,
+            vendor_docs_imported: 0,
         };
+
+        let imported_vendor_ids: HashSet<String> =
+            file.vendors.iter().map(|v| v.id.0.clone()).collect();
 
         if mode == VendorImportMode::Replace {
             result.removed = self.vendors.len();
             self.vendors.clear();
             self.assessments.clear();
+            self.value_streams.clear();
+            self.vendor_docs.clear();
         }
 
         for vendor in file.vendors {
@@ -416,6 +488,85 @@ impl EvaluationWorkspace {
             }
         }
 
+        result.value_streams_imported = import_vendor_value_streams(
+            &mut self.value_streams,
+            &file.value_streams,
+            &imported_vendor_ids,
+            mode,
+        );
+        result.vendor_docs_imported =
+            import_vendor_docs(&mut self.vendor_docs, &file.vendor_docs, &imported_vendor_ids, mode);
+
         result
     }
+}
+
+fn import_vendor_docs(
+    target: &mut HashMap<String, Vec<VendorDocSection>>,
+    incoming: &HashMap<String, Vec<VendorDocSection>>,
+    vendor_ids: &HashSet<String>,
+    mode: VendorImportMode,
+) -> usize {
+    let mut imported = 0usize;
+    for vendor_id in vendor_ids {
+        let Some(sections) = incoming.get(vendor_id) else {
+            continue;
+        };
+        if sections.is_empty() {
+            continue;
+        }
+        match mode {
+            VendorImportMode::Replace => {
+                imported += sections.len();
+                target.insert(vendor_id.clone(), sections.clone());
+            }
+            VendorImportMode::Merge => {
+                let entry = target.entry(vendor_id.clone()).or_default();
+                for section in sections {
+                    if let Some(existing) = entry.iter_mut().find(|s| s.id == section.id) {
+                        *existing = section.clone();
+                    } else {
+                        entry.push(section.clone());
+                    }
+                    imported += 1;
+                }
+            }
+        }
+    }
+    imported
+}
+
+fn import_vendor_value_streams(
+    target: &mut HashMap<String, Vec<ValueStreamEntry>>,
+    incoming: &HashMap<String, Vec<ValueStreamEntry>>,
+    vendor_ids: &HashSet<String>,
+    mode: VendorImportMode,
+) -> usize {
+    let mut imported = 0usize;
+    for vendor_id in vendor_ids {
+        let Some(streams) = incoming.get(vendor_id) else {
+            continue;
+        };
+        if streams.is_empty() {
+            continue;
+        }
+        match mode {
+            VendorImportMode::Replace => {
+                imported += streams.len();
+                target.insert(vendor_id.clone(), streams.clone());
+            }
+            VendorImportMode::Merge => {
+                let entry = target.entry(vendor_id.clone()).or_default();
+                for stream in streams {
+                    if let Some(existing) = entry.iter_mut().find(|e| e.id == stream.id) {
+                        *existing = stream.clone();
+                    } else {
+                        entry.push(stream.clone());
+                    }
+                    imported += 1;
+                }
+            }
+        }
+    }
+    imported
 }

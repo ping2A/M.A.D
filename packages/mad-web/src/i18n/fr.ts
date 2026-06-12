@@ -67,6 +67,7 @@ export const fr: Translations = {
     compare: "Comparaison",
     scorecards: "Fiches scores",
     vsm: "Chaîne de valeur",
+    docs: "Documentation",
     overview: "Vue d'ensemble",
     report: "Rapport",
   },
@@ -94,7 +95,7 @@ export const fr: Translations = {
   workspaceData: {
     title: "Données d'évaluation",
     intro:
-      "Exportez ou importez l'évaluation complète en un seul fichier JSON — critères, règles de notation, achats, éditeurs (étiquettes et tarifs) et tous les résultats d'évaluation.",
+      "Exportez ou importez l'évaluation complète en un seul fichier JSON — critères, règles de notation, achats, éditeurs (étiquettes et tarifs), résultats d'évaluation, cartes de chaîne de valeur et documentation éditeur.",
     currentStats:
       "Actuel : {pillars} groupes de critères · {requirements} exigences · {vendors} éditeurs",
     exportFull: "Exporter l'espace complet",
@@ -106,9 +107,17 @@ export const fr: Translations = {
       "Remplacer tout l'espace (critères, éditeurs, scores, paramètres) ? Cette action est irréversible.",
     importFullSuccess:
       "Espace chargé : {pillars} groupes de critères, {requirements} exigences, {vendors} éditeurs.",
+    importFullSuccessWithVsm:
+      "Espace chargé : {pillars} groupes de critères, {requirements} exigences, {vendors} éditeurs, {vsmMaps} cartes de chaîne de valeur.",
     importVendorsReplaceConfirm:
       "Remplacer tous les éditeurs et évaluations par le fichier importé ?",
     importVendorsSuccess: "Éditeurs importés — {vendors} éditeurs dans l'espace.",
+    importVendorsSuccessWithVsm:
+      "Éditeurs importés — {vendors} éditeurs, {vsmMaps} cartes de chaîne de valeur.",
+    importVendorsSuccessWithDocs:
+      "Éditeurs importés — {vendors} éditeurs, {docSections} sections de documentation.",
+    importVendorsSuccessWithVsmAndDocs:
+      "Éditeurs importés — {vendors} éditeurs, {vsmMaps} cartes de chaîne de valeur, {docSections} sections de documentation.",
     advancedTitle: "Import/export éditeurs uniquement",
     advancedHint:
       "Utilisez les fichiers éditeurs seuls pour partager des listes sans modifier les critères.",
@@ -467,6 +476,54 @@ export const fr: Translations = {
     newSupplier: "Fournisseur",
     newInventory: "Stock",
     newKaizen: "Éclat Kaizen",
+  },
+  vendorDocs: {
+    title: "Documentation éditeur",
+    intro:
+      "Attachez des sections de documentation personnalisées à chaque éditeur — ex. Confidentialité, Support SLA, Conformité. Définissez vos propres groupes et éléments. Informatif uniquement ; n'affecte pas les scores.",
+    notScored: "Hors score",
+    vendor: "Éditeur",
+    section: "Section",
+    sectionName: "Nom de section",
+    sectionNamePlaceholder: "ex. Confidentialité, Support, Durabilité",
+    unnamedSection: "Section sans titre",
+    defaultSectionName: "Documentation",
+    newSection: "+ Nouvelle section",
+    newSectionPrompt: "Nom de la nouvelle section de documentation :",
+    deleteSection: "Supprimer la section",
+    deleteSectionConfirm: "Supprimer cette section de documentation ? Action irréversible.",
+    addPrivacyExample: "+ Exemple confidentialité",
+    overview: "Vue d'ensemble",
+    overviewPlaceholder: "Résumé pour cette section…",
+    filterAll: "Tous les groupes",
+    ungrouped: "Sans groupe",
+    itemGroup: "Groupe",
+    itemGroupPlaceholder: "Sous-groupe optionnel (ex. Application, Utilisateur final)",
+    itemTitle: "Sujet",
+    itemDescription: "Description",
+    itemNotes: "Notes",
+    itemNotesPlaceholder: "Constats, liens, écarts, mesures…",
+    itemColor: "Mise en évidence",
+    customColor: "Couleur personnalisée",
+    compactView: "Vue compacte",
+    itemCount: "{count} éléments",
+    highlightedCount: "{count} mis en évidence",
+    untitledItem: "Sujet sans titre",
+    colors: {
+      colorNone: "Aucune",
+      customColor: "Personnalisée",
+      critical: "Critique",
+      warning: "Attention",
+      info: "Info",
+      success: "OK",
+      neutral: "Note",
+    },
+    addItem: "+ Ajouter un élément",
+    removeItem: "Supprimer",
+    noVendors: "Ajoutez des éditeurs dans l'onglet Éditeurs pour créer de la documentation.",
+    noSections: "Aucune section. Créez-en une ou ajoutez l'exemple Confidentialité.",
+    saving: "Enregistrement…",
+    emptyItems: "Aucun élément. Ajoutez des sujets et définissez leur contenu.",
   },
   scorecards: {
     title: "Fiches scores éditeurs",

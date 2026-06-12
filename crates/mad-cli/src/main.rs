@@ -196,6 +196,7 @@ fn cmd_report(
 
     let evaluation = evaluator.evaluate()?;
     let value_streams: HashMap<String, Vec<mad_core::ValueStreamEntry>> = HashMap::new();
+    let vendor_docs: HashMap<String, Vec<mad_core::VendorDocSection>> = HashMap::new();
 
     let default_output = match format {
         ReportFormat::Md => PathBuf::from("mad-evaluation-report.md"),
@@ -212,20 +213,22 @@ fn cmd_report(
 
     match format {
         ReportFormat::Md => {
-            let content = render_markdown(&bundle, &evaluation, &value_streams);
+            let content = render_markdown(&bundle, &evaluation, &value_streams, &vendor_docs);
             std::fs::write(&path, content)?;
         }
         ReportFormat::Html => {
             let logo_path = if logo.exists() { Some(logo.as_path()) } else { None };
             let options = default_html_options(logo_path);
-            let content = render_html(&bundle, &evaluation, &value_streams, &options);
+            let content =
+                render_html(&bundle, &evaluation, &value_streams, &vendor_docs, &options);
             std::fs::write(&path, content)?;
             eprintln!("Open in any browser or share as a single self-contained file.");
         }
         ReportFormat::Pdf => {
             let logo_path = if logo.exists() { Some(logo.as_path()) } else { None };
             let options = default_pdf_options(logo_path);
-            let content = render_pdf(&bundle, &evaluation, &value_streams, &options)?;
+            let content =
+                render_pdf(&bundle, &evaluation, &value_streams, &vendor_docs, &options)?;
             std::fs::write(&path, content)?;
         }
     }
