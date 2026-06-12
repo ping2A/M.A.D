@@ -1208,6 +1208,19 @@ body {
   padding: 0.35rem !important;
 }
 
+.matrix-na-cell {
+  text-align: center;
+  vertical-align: middle;
+  background: #f8f9fa;
+}
+
+.matrix-na-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted, #9aa0a6);
+  letter-spacing: 0.02em;
+}
+
 .matrix-status-cell {
   position: relative;
 }

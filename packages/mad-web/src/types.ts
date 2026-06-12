@@ -206,6 +206,7 @@ export interface WorkspaceImportResult {
   vendors: number;
   assessments: number;
   value_stream_maps: number;
+  vendor_doc_sections: number;
   vendor_result?: VendorImportResult | null;
 }
 
@@ -238,6 +239,8 @@ export interface RequirementResult {
   severity: RequirementSeverity;
   status: ComplianceStatus;
   notes: string | null;
+  /** When false, criterion tags do not overlap vendor tags — excluded from scores. */
+  applicable?: boolean;
 }
 
 export interface PillarEvaluation {

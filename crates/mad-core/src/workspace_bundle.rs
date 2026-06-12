@@ -20,6 +20,7 @@ pub struct WorkspaceImportResult {
     pub vendors: usize,
     pub assessments: usize,
     pub value_stream_maps: usize,
+    pub vendor_doc_sections: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vendor_result: Option<VendorImportResult>,
 }
@@ -87,6 +88,7 @@ impl EvaluationWorkspace {
             vendors: self.vendors.len(),
             assessments: self.assessments.len(),
             value_stream_maps: self.value_stream_map_count(),
+            vendor_doc_sections: self.vendor_doc_section_count(),
             vendor_result,
         }
     }
@@ -189,5 +191,68 @@ mod tests {
         let streams = target.value_streams.get(&vendor_id).expect("streams");
         assert_eq!(streams.len(), 1);
         assert_eq!(streams[0].name, "Enrollment");
+    }
+
+    #[test]
+    fn roundtrip_bundle_with_vendor_docs() {
+        use crate::vendor_doc::{VendorDocItem, VendorDocSection};
+
+        let dir = std::path::Path::new("policies");
+        if !dir.exists() {
+            return;
+        }
+        let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let mut ws = EvaluationWorkspace::from_policy(&bundle);
+        let vendor_id = ws
+            .vendors
+            .first()
+            .map(|v| v.id.0.clone())
+            .unwrap_or_else(|| "vendor-a".into());
+        ws.vendor_docs.insert(
+            vendor_id.clone(),
+            vec![VendorDocSection {
+                id: "vdoc-test".into(),
+                name: "Security".into(),
+                color: Some("info".into()),
+                overview: Some("Overview".into()),
+                items: vec![VendorDocItem {
+                    id: "item-1".into(),
+                    group: None,
+                    color: None,
+                    title: "MFA".into(),
+                    description: Some("Required".into()),
+                    notes: None,
+                }],
+            }],
+        );
+
+        let json = serde_json::to_string(&ws.export_bundle("docs-test")).expect("serialize");
+        let parsed = parse_workspace_import(&json).expect("parse");
+        let mut target = EvaluationWorkspace::from_policy(&bundle);
+        let result = target.import_parsed(parsed, VendorImportMode::Replace);
+        let docs = target.vendor_docs.get(&vendor_id).expect("docs");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].name, "Security");
+        assert_eq!(result.vendor_doc_sections, 1);
+    }
+
+    #[test]
+    fn imports_legacy_vendor_set_without_description() {
+        let dir = std::path::Path::new("policies");
+        if !dir.exists() {
+            return;
+        }
+        let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let json = r#"{
+            "format_version": 2,
+            "exported_at": "legacy",
+            "vendors": [{"id": "legacy-co", "name": "Legacy Co"}],
+            "assessments": {}
+        }"#;
+        let parsed = parse_workspace_import(json).expect("parse");
+        let mut ws = EvaluationWorkspace::from_policy(&bundle);
+        ws.import_parsed(parsed, VendorImportMode::Merge);
+        let vendor = ws.vendors.iter().find(|v| v.id.0 == "legacy-co").expect("vendor");
+        assert_eq!(vendor.description, "");
     }
 }

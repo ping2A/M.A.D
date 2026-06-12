@@ -130,4 +130,39 @@ mod tests {
         let parsed: VendorSetFile = serde_json::from_str(&json).expect("parse");
         assert_eq!(parsed.value_streams.get("intune").map(|v| v.len()), Some(1));
     }
+
+    #[test]
+    fn vendor_set_roundtrips_vendor_docs() {
+        use crate::vendor_doc::{VendorDocItem, VendorDocSection};
+
+        let file = VendorSetFile::new(
+            "test",
+            vec![],
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::from([(
+                "intune".into(),
+                vec![VendorDocSection {
+                    id: "vdoc-1".into(),
+                    name: "Privacy".into(),
+                    color: None,
+                    overview: None,
+                    items: vec![VendorDocItem {
+                        id: "item-1".into(),
+                        group: None,
+                        color: None,
+                        title: "Auth".into(),
+                        description: None,
+                        notes: None,
+                    }],
+                }],
+            )]),
+        );
+        let json = serde_json::to_string(&file).expect("serialize");
+        let parsed: VendorSetFile = serde_json::from_str(&json).expect("parse");
+        assert_eq!(
+            parsed.vendor_docs.get("intune").map(|v| v.len()),
+            Some(1)
+        );
+    }
 }

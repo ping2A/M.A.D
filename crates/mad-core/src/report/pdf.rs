@@ -371,7 +371,7 @@ pub fn render_pdf(
     layout.text_at(
         title_x,
         18.0,
-        "Mobile Assessment & Defense — MDM Evaluation Report",
+        "Mobile Assessment & Defense",
         9.5,
         false,
         colors::silver(),
@@ -429,75 +429,7 @@ pub fn render_pdf(
     layout.advance(meta_h + 5.0);
 
     // ── Section 1 ────────────────────────────────────────────────────────
-    layout.section_heading("1. Purpose and Scope");
-    layout.paragraph(
-        "MAD (Mobile Assessment & Defense) is an evaluation-only platform. It assesses whether \
-         candidate MDM vendors meet a corporate mobile security standard before procurement. It \
-         does not enroll devices or enforce policies.",
-    );
-
-    let scope_y = layout.y_top;
-    let scope_h = 28.0;
-    let scope_w = (CONTENT_W_MM - 4.0) / 2.0;
-    layout.fill_rect(MARGIN_MM, scope_y, scope_w, scope_h, colors::scope_in_bg());
-    layout.fill_rect(
-        MARGIN_MM + scope_w + 4.0,
-        scope_y,
-        scope_w,
-        scope_h,
-        colors::scope_out_bg(),
-    );
-    layout.fill_rect(MARGIN_MM, scope_y, 1.5, scope_h, colors::compliant());
-    layout.fill_rect(MARGIN_MM + scope_w + 4.0, scope_y, 1.5, scope_h, colors::gap());
-    layout.text_at(MARGIN_MM + 4.0, scope_y + 5.0, "IN SCOPE", 8.0, true, colors::compliant());
-    let in_x = MARGIN_MM + 4.0;
-    for (i, item) in [
-        "iOS MDM (ABM, supervised mode)",
-        "Android Enterprise (Work Profile, COBO, kiosk)",
-        "Vendor capability assessment & scoring",
-    ]
-    .iter()
-    .enumerate()
-    {
-        layout.text_at(
-            in_x,
-            scope_y + 10.0 + i as f32 * 4.5,
-            &format!("• {item}"),
-            8.5,
-            false,
-            colors::text(),
-        );
-    }
-    layout.text_at(
-        MARGIN_MM + scope_w + 8.0,
-        scope_y + 5.0,
-        "OUT OF SCOPE",
-        8.0,
-        true,
-        colors::gap(),
-    );
-    let out_x = MARGIN_MM + scope_w + 8.0;
-    for (i, item) in [
-        "Desktop / laptop management",
-        "Post-selection policy enforcement",
-        "Device deployment",
-    ]
-    .iter()
-    .enumerate()
-    {
-        layout.text_at(
-            out_x,
-            scope_y + 10.0 + i as f32 * 4.5,
-            &format!("• {item}"),
-            8.5,
-            false,
-            colors::text(),
-        );
-    }
-    layout.advance(scope_h + 6.0);
-
-    // ── Section 2 ────────────────────────────────────────────────────────
-    layout.section_heading("2. Evaluation Methodology");
+    layout.section_heading("1. Evaluation Methodology");
     layout.paragraph(
         "Requirements are defined in Policy-as-Code YAML. Each requirement maps to a compliance \
          status with scoring weights for pillar and overall scores.",
@@ -584,8 +516,8 @@ pub fn render_pdf(
     ));
     layout.advance(2.0);
 
-    // ── Section 3 ────────────────────────────────────────────────────────
-    layout.section_heading("3. Requirements and Technical Criteria");
+    // ── Section 2 ────────────────────────────────────────────────────────
+    layout.section_heading("2. Requirements and Technical Criteria");
     for pillar in &bundle.pillars {
         layout.subheading(&pillar.name);
         layout.paragraph(pillar.description.trim());
@@ -637,7 +569,7 @@ pub fn render_pdf(
     }
 
     // ── Section 4 ────────────────────────────────────────────────────────
-    layout.section_heading("4. Vendor Assessment Results");
+    layout.section_heading("3. Vendor Assessment Results");
 
     let ranked = rank_vendors(evaluation);
     let composite_ranking = uses_composite_ranking(evaluation);
@@ -805,26 +737,44 @@ pub fn render_pdf(
             inner_y += 6.0;
 
             for req in &pillar.requirements {
-                layout.status_badge(MARGIN_MM + 8.0, inner_y, req.status);
-                let sev_w = layout.severity_badge(MARGIN_MM + 20.0, inner_y, req.severity);
-                layout.text_at(
-                    MARGIN_MM + 20.0 + sev_w + 2.0,
-                    inner_y + 3.5,
-                    &format!(
-                        "{} {}",
-                        req.requirement_id,
-                        truncate_chars(&req.title, 52)
-                    ),
-                    7.5,
-                    false,
-                    colors::text(),
-                );
+                if req.applicable {
+                    layout.status_badge(MARGIN_MM + 8.0, inner_y, req.status);
+                    let sev_w = layout.severity_badge(MARGIN_MM + 20.0, inner_y, req.severity);
+                    layout.text_at(
+                        MARGIN_MM + 20.0 + sev_w + 2.0,
+                        inner_y + 3.5,
+                        &format!(
+                            "{} {}",
+                            req.requirement_id,
+                            truncate_chars(&req.title, 52)
+                        ),
+                        7.5,
+                        false,
+                        colors::text(),
+                    );
+                } else {
+                    layout.text_at(MARGIN_MM + 8.0, inner_y + 3.5, "N/A", 7.5, true, colors::muted());
+                    layout.text_at(
+                        MARGIN_MM + 20.0,
+                        inner_y + 3.5,
+                        &format!(
+                            "{} {}",
+                            req.requirement_id,
+                            truncate_chars(&req.title, 52)
+                        ),
+                        7.5,
+                        false,
+                        colors::muted(),
+                    );
+                }
                 inner_y += 5.0;
-                if let Some(notes) = &req.notes {
-                    if !notes.trim().is_empty() {
-                        for line in wrap_text(&format!("Note: {}", notes.trim()), 88) {
-                            layout.text_at(MARGIN_MM + 22.0, inner_y, &line, 7.0, false, colors::muted());
-                            inner_y += 3.8;
+                if req.applicable {
+                    if let Some(notes) = &req.notes {
+                        if !notes.trim().is_empty() {
+                            for line in wrap_text(&format!("Note: {}", notes.trim()), 88) {
+                                layout.text_at(MARGIN_MM + 22.0, inner_y, &line, 7.0, false, colors::muted());
+                                inner_y += 3.8;
+                            }
                         }
                     }
                 }
@@ -860,7 +810,7 @@ pub fn render_pdf(
         layout.paragraph("* Composite score used for ranking (capability + price).");
     }
 
-    let mut section = 5u8;
+    let mut section = 4u8;
     if vsm::any_value_streams(value_streams) {
         layout.section_heading(&format!("{section}. Value Stream Maps"));
         layout.paragraph(
@@ -1505,6 +1455,9 @@ fn vendor_status_totals(result: &EvaluationResult) -> (usize, usize, usize, usiz
     let mut untested = 0usize;
     for pillar in &result.pillars {
         for req in &pillar.requirements {
+            if !req.applicable {
+                continue;
+            }
             match req.status {
                 ComplianceStatus::Compliant => compliant += 1,
                 ComplianceStatus::Partial => partial += 1,

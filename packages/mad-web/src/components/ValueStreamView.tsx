@@ -44,7 +44,6 @@ import {
   slugifyFlowTypeId,
   type VsmEdgeData,
   type VsmNodeData,
-  valueStreamMapsEqual,
   vsmToFlow,
 } from "../utils/valueStream";
 import { VsmDurationInput } from "./vsm/VsmDurationInput";
@@ -120,12 +119,10 @@ function ValueStreamEditor({
   vendor,
   initialMap,
   onSave,
-  saving,
 }: {
   vendor: Vendor;
   initialMap: ValueStreamMap;
   onSave: (map: ValueStreamMap) => Promise<void>;
-  saving?: boolean;
 }) {
   const { t } = useLocale();
   const { screenToFlowPosition, fitView, fitBounds } = useReactFlow();
@@ -149,13 +146,10 @@ function ValueStreamEditor({
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipSave = useRef(true);
-  const prevVendorIdRef = useRef(vendor.id);
-  const flowStateRef = useRef({
-    nodes: initial.nodes,
-    edges: initial.edges,
-    messages: initialMap.messages,
-    customFlowTypes: initialMap.flow_types ?? [],
-  });
+  const onSaveRef = useRef(onSave);
+  const lastPersistedRef = useRef(JSON.stringify(initialMap));
+  const [isSaving, setIsSaving] = useState(false);
+  onSaveRef.current = onSave;
 
   const allFlowTypes = useMemo(() => {
     const merged = new Map(DEFAULT_FLOW_TYPES.map((type) => [type.id, { ...type }]));
@@ -172,52 +166,41 @@ function ValueStreamEditor({
     return [...merged.values()];
   }, [customFlowTypes, edges]);
 
-  flowStateRef.current = { nodes, edges, messages, customFlowTypes };
-
   useEffect(() => {
-    const vendorChanged = prevVendorIdRef.current !== vendor.id;
-    prevVendorIdRef.current = vendor.id;
-
-    if (!vendorChanged) {
-      const localMap = flowToVsm(
-        flowStateRef.current.nodes,
-        flowStateRef.current.edges,
-        flowStateRef.current.messages,
-        flowStateRef.current.customFlowTypes,
-      );
-      if (valueStreamMapsEqual(localMap, initialMap)) {
-        skipSave.current = true;
-        return;
-      }
-    }
-
-    const flow = vsmToFlow(initialMap);
-    setNodes(flow.nodes);
-    setEdges(flow.edges);
-    setMessages(initialMap.messages);
-    setCustomFlowTypes(initialMap.flow_types ?? []);
     skipSave.current = true;
-
-    if (vendorChanged) {
-      setSelectedNodeId(null);
-      setSelectedEdgeId(null);
-      requestAnimationFrame(() => fitView({ padding: 0.15, duration: 200 }));
-    }
-  }, [vendor.id, initialMap, setNodes, setEdges, fitView]);
+    lastPersistedRef.current = JSON.stringify(
+      flowToVsm(initial.nodes, initial.edges, initialMap.messages, initialMap.flow_types ?? []),
+    );
+    requestAnimationFrame(() => fitView({ padding: 0.15, duration: 200 }));
+    // Remount via parent key handles vendor/stream switches.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (skipSave.current) {
       skipSave.current = false;
       return;
     }
+    const map = flowToVsm(nodes, edges, messages, customFlowTypes);
+    const fingerprint = JSON.stringify(map);
+    if (fingerprint === lastPersistedRef.current) return;
+
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      onSave(flowToVsm(nodes, edges, messages, customFlowTypes));
-    }, 900);
+      lastPersistedRef.current = fingerprint;
+      setIsSaving(true);
+      void onSaveRef
+        .current(map)
+        .catch(() => {
+          lastPersistedRef.current = "";
+        })
+        .finally(() => setIsSaving(false));
+    }, 1500);
+
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [nodes, edges, messages, customFlowTypes, onSave]);
+  }, [nodes, edges, messages, customFlowTypes]);
 
   const clearGraphFocus = useCallback(() => {
     setNodes((nds) =>
@@ -491,18 +474,22 @@ function ValueStreamEditor({
     );
   };
 
-  const selectEdge = (edgeId: string) => {
+  const selectEdge = (edgeId: string, focus = false) => {
     setSelectedEdgeId(edgeId);
     setSelectedNodeId(null);
     setInspectorTab("properties");
-    focusOnGraph({ edgeId });
+    if (focus) {
+      focusOnGraph({ edgeId });
+    }
   };
 
-  const selectNode = (nodeId: string) => {
+  const selectNode = (nodeId: string, focus = false) => {
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
     setInspectorTab("properties");
-    focusOnGraph({ nodeId });
+    if (focus) {
+      focusOnGraph({ nodeId });
+    }
   };
 
   const addMessage = () => {
@@ -577,7 +564,7 @@ function ValueStreamEditor({
           >
             {t.vsm.clearAll}
           </button>
-          {saving && (
+          {isSaving && (
             <span className="saving-indicator">
               <span className="saving-dot" /> {t.vsm.saving}
             </span>
@@ -992,8 +979,8 @@ function ValueStreamEditor({
         nodes={nodes}
         edges={edges}
         selectedEdgeId={selectedEdgeId}
-        onSelectEdge={selectEdge}
-        onSelectNode={selectNode}
+        onSelectEdge={(edgeId) => selectEdge(edgeId, true)}
+        onSelectNode={(nodeId) => selectNode(nodeId, true)}
       />
     </div>
     </VsmFlowTypesProvider>
@@ -1052,6 +1039,22 @@ export function ValueStreamView({
 
   const vendor = vendors.find((v) => v.id === vendorId);
   const map = activeEntry ? entryToMap(activeEntry) : emptyValueStream();
+  const streamNameRef = useRef(streamName);
+  const activeEntryNameRef = useRef(activeEntry?.name);
+  streamNameRef.current = streamName;
+  activeEntryNameRef.current = activeEntry?.name;
+
+  const handleEditorSave = useCallback(
+    (valueStream: ValueStreamMap) => {
+      if (!vendorId || !streamId) return Promise.resolve();
+      const name =
+        streamNameRef.current.trim() ||
+        activeEntryNameRef.current ||
+        t.vsm.defaultStreamName;
+      return onSave(vendorId, streamId, name, valueStream);
+    },
+    [vendorId, streamId, onSave, t.vsm.defaultStreamName],
+  );
 
   const handleNewStream = async () => {
     if (!vendorId) return;
@@ -1152,8 +1155,7 @@ export function ValueStreamView({
             key={`${vendor.id}-${streamId}`}
             vendor={vendor}
             initialMap={map}
-            onSave={(m) => onSave(vendor.id, streamId, streamName.trim() || activeEntry?.name || t.vsm.defaultStreamName, m)}
-            saving={saving}
+            onSave={handleEditorSave}
           />
         </ReactFlowProvider>
       )}

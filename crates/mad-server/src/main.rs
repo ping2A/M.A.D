@@ -13,7 +13,8 @@ use axum::{
     Json, Router,
 };
 use mad_core::{
-    default_html_options, default_pdf_options, render_html, render_pdf, Evaluator,
+    default_html_options, default_pdf_options, filter_evaluation_by_tags, filter_vendor_map,
+    parse_vendor_tags_query, render_html, render_pdf, Evaluator, ReportLocale,
     parse_workspace_import, EvaluationWorkspace, Pillar, PolicyBundle, ProcurementConfig,
     Requirement, ScoringConfig, ValueStreamEntry, ValueStreamMap, Vendor, VendorImportMode,
     VendorDocSection, VendorImportResult,
@@ -204,6 +205,10 @@ async fn main() {
         .route("/api/workspace/vendors", post(add_vendor))
         .route("/api/workspace/vendors/export", get(export_vendors))
         .route("/api/workspace/vendors/import", post(import_vendors))
+        .route(
+            "/api/workspace/vendors/load-example",
+            post(load_example_vendors),
+        )
         .route(
             "/api/workspace/vendors/{id}",
             put(update_vendor).delete(delete_vendor),
@@ -424,6 +429,7 @@ async fn import_workspace(
         vendors: 0,
         assessments: 0,
         value_stream_maps: 0,
+        vendor_doc_sections: 0,
         vendor_result: None,
     };
     let workspace = state
@@ -460,6 +466,29 @@ async fn export_vendors(State(state): State<Arc<AppState>>) -> Result<impl IntoR
         ],
         json,
     ))
+}
+
+async fn load_example_vendors(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<ImportVendorsResponse>, AppError> {
+    let mut import_result = VendorImportResult {
+        added: 0,
+        updated: 0,
+        skipped: 0,
+        removed: 0,
+        value_streams_imported: 0,
+        vendor_docs_imported: 0,
+    };
+    let workspace = state
+        .workspace
+        .update(|w| {
+            import_result = w.import_sample_vendors();
+        })
+        .await?;
+    Ok(Json(ImportVendorsResponse {
+        result: import_result,
+        workspace,
+    }))
 }
 
 async fn import_vendors(
@@ -740,41 +769,102 @@ async fn evaluation(
     Ok(Json(evaluate_from_state(&state).await?))
 }
 
-async fn report_html(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
+#[derive(Debug, Deserialize, Default)]
+struct ReportHtmlQuery {
+    /// When `1`, serve inline for iframe embed (hides chrome via `?embed=1` in the report).
+    embed: Option<String>,
+    /// Report UI language (`en` or `fr`).
+    lang: Option<String>,
+    /// Comma-separated vendor tags (`shortlist,ios`).
+    tags: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ReportPdfQuery {
+    tags: Option<String>,
+}
+
+fn report_tag_filter(
+    evaluation: mad_core::EvaluationReport,
+    value_streams: std::collections::HashMap<String, Vec<ValueStreamEntry>>,
+    vendor_docs: std::collections::HashMap<String, Vec<VendorDocSection>>,
+    tags: Option<&str>,
+) -> (
+    mad_core::EvaluationReport,
+    std::collections::HashMap<String, Vec<ValueStreamEntry>>,
+    std::collections::HashMap<String, Vec<VendorDocSection>>,
+    Vec<String>,
+) {
+    let active_tags = tags
+        .map(parse_vendor_tags_query)
+        .unwrap_or_default();
+    let evaluation = filter_evaluation_by_tags(evaluation, &active_tags);
+    let value_streams = filter_vendor_map(&value_streams, &evaluation.vendors);
+    let vendor_docs = filter_vendor_map(&vendor_docs, &evaluation.vendors);
+    (evaluation, value_streams, vendor_docs, active_tags)
+}
+
+async fn report_html(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ReportHtmlQuery>,
+) -> Result<impl IntoResponse, AppError> {
     let workspace = state.workspace.get().await;
     let evaluation = evaluate_from_state(&state).await?;
     let bundle = workspace.to_policy_bundle();
+    let (evaluation, value_streams, vendor_docs, active_tags) = report_tag_filter(
+        evaluation,
+        workspace.value_streams.clone(),
+        workspace.vendor_docs.clone(),
+        query.tags.as_deref(),
+    );
 
     let logo_path = if state.logo_path.exists() {
         Some(state.logo_path.as_path())
     } else {
         None
     };
-    let options = default_html_options(logo_path);
+    let mut options = default_html_options(logo_path);
+    if let Some(lang) = query.lang.as_deref() {
+        options.locale = ReportLocale::parse(lang);
+    }
+    options.filter_tags = active_tags;
     let html = render_html(
         &bundle,
         &evaluation,
-        &workspace.value_streams,
-        &workspace.vendor_docs,
+        &value_streams,
+        &vendor_docs,
         &options,
     );
+
+    let inline = query.embed.as_deref() == Some("1");
+    let disposition = if inline {
+        "inline"
+    } else {
+        "attachment; filename=\"mad-evaluation-report.html\""
+    };
 
     Ok((
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
-            (
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=\"mad-evaluation-report.html\"",
-            ),
+            (header::CONTENT_DISPOSITION, disposition),
         ],
         html,
     ))
 }
 
-async fn report_pdf(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, AppError> {
+async fn report_pdf(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ReportPdfQuery>,
+) -> Result<impl IntoResponse, AppError> {
     let workspace = state.workspace.get().await;
     let evaluation = evaluate_from_state(&state).await?;
     let bundle = workspace.to_policy_bundle();
+    let (evaluation, value_streams, vendor_docs, _active_tags) = report_tag_filter(
+        evaluation,
+        workspace.value_streams.clone(),
+        workspace.vendor_docs.clone(),
+        query.tags.as_deref(),
+    );
     let logo_path = if state.logo_path.exists() {
         Some(state.logo_path.as_path())
     } else {
@@ -784,8 +874,8 @@ async fn report_pdf(State(state): State<Arc<AppState>>) -> Result<impl IntoRespo
     let pdf = render_pdf(
         &bundle,
         &evaluation,
-        &workspace.value_streams,
-        &workspace.vendor_docs,
+        &value_streams,
+        &vendor_docs,
         &options,
     )
     .map_err(|e| {

@@ -2,8 +2,12 @@ import { useState } from "react";
 import { downloadReport, type ReportFormat } from "../api/client";
 import { useLocale } from "../i18n/LocaleContext";
 
-export function ReportDownloads() {
-  const { t } = useLocale();
+interface ReportDownloadsProps {
+  activeTags?: Set<string>;
+}
+
+export function ReportDownloads({ activeTags = new Set() }: ReportDownloadsProps) {
+  const { t, locale } = useLocale();
   const [downloading, setDownloading] = useState<ReportFormat | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -11,7 +15,7 @@ export function ReportDownloads() {
     setDownloading(format);
     setError(null);
     try {
-      await downloadReport(format);
+      await downloadReport(format, locale, [...activeTags]);
     } catch (err) {
       setError(err instanceof Error ? err.message : t.report.downloadError);
     } finally {

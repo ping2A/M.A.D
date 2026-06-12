@@ -56,7 +56,7 @@ export const en: Translations = {
   header: {
     title: "MAD",
     logoAlt: "MAD logo",
-    subtitle: "Mobile Assessment & Defense — iOS & Android MDM evaluation",
+    subtitle: "Mobile Assessment & Defense",
     tagline: "Score vendors · Compare pillars · Export reports",
     language: "Language",
   },
@@ -91,6 +91,12 @@ export const en: Translations = {
     gaps: "gaps",
     vendorTitle: "{name}: {score}%{gaps}",
     criticalGaps: "critical gaps",
+    filterTags: "Filter by tags",
+    filterTagsHint: "Show vendors matching any selected tag. Rankings and price scores recalculate for the filtered set.",
+    clearTags: "Clear tags",
+    noTags: "No tags yet — add tags on the Vendors tab to filter here.",
+    noVendorsFiltered: "No vendors match the selected tags.",
+    filterCount: "{count} of {total} vendors",
   },
   workspaceData: {
     title: "Workspace Data",
@@ -108,6 +114,10 @@ export const en: Translations = {
       "Workspace loaded: {pillars} criteria groups, {requirements} requirements, {vendors} vendors.",
     importFullSuccessWithVsm:
       "Workspace loaded: {pillars} criteria groups, {requirements} requirements, {vendors} vendors, {vsmMaps} value stream maps.",
+    importFullSuccessWithDocs:
+      "Workspace loaded: {pillars} criteria groups, {requirements} requirements, {vendors} vendors, {docSections} documentation sections.",
+    importFullSuccessWithVsmAndDocs:
+      "Workspace loaded: {pillars} criteria groups, {requirements} requirements, {vendors} vendors, {vsmMaps} value stream maps, {docSections} documentation sections.",
     importVendorsReplaceConfirm:
       "Replace all vendors and assessments with the imported vendor file?",
     importVendorsSuccess: "Vendors imported — {vendors} vendors in workspace.",
@@ -176,8 +186,14 @@ export const en: Translations = {
   vendors: {
     title: "Vendors",
     intro:
-      "Add MDM vendors to compare. Export or import vendor lists with assessments as JSON to share evaluations across workspaces.",
+      "Start with an empty list, add your own MDM vendors, or load the example set (Intune, Jamf, Workspace ONE) with pre-filled assessments.",
     add: "+ Add Vendor",
+    loadExample: "Load example vendors",
+    loadExampleHint:
+      "Adds Microsoft Intune, Jamf Pro, and VMware Workspace ONE with sample compliance scores.",
+    loadExampleSuccess: "Example vendors loaded ({added} added, {updated} updated).",
+    emptyTitle: "No vendors yet",
+    emptyHint: "Load the example set to explore MAD, or add your first vendor manually.",
     new: "New Vendor",
     edit: "Edit Vendor",
     vendor: "Vendor",
@@ -266,7 +282,7 @@ export const en: Translations = {
   matrix: {
     title: "Scoring Matrix",
     intro:
-      "Set compliance per vendor and requirement. Scores update live as you work.",
+      "Set compliance per vendor and requirement. A criterion counts toward a vendor's score only when its tags overlap that vendor's tags. Scores update live as you work.",
     usageHint: "Click the status icon to cycle · ▾ to pick directly · ✎ for notes",
     saving: "Saving…",
     criterion: "Requirement",
@@ -291,6 +307,8 @@ export const en: Translations = {
     showingRequirements: "{count} requirements shown",
     cellStats: "{total} cells · {untested} untested · {gaps} gaps",
     scoredCount: "{scored}/{total} scored",
+    notApplicable: "Not applicable for this vendor (no matching tags)",
+    notApplicableShort: "N/A",
     noResults: "No requirements match your filters",
     noResultsHint: "Clear search or filters to see the full matrix.",
     expandRequirement: "More detail",
@@ -538,6 +556,12 @@ export const en: Translations = {
     downloadPdf: "Download PDF Report",
     downloading: "Downloading…",
     downloadError: "Download failed. Is mad-server running?",
+    openLiveReport: "Open full report",
+    embedPreviewTitle: "Interactive HTML report",
+    embedPreviewHint:
+      "Live embed with pan/zoom VSM diagrams, vendor filter, and collapsible sections. Works offline after download.",
+    tagsFilterActive:
+      "Report limited to vendors matching tags: {tags} (from Live Scores filter).",
     purposeTitle: "1. Purpose and Scope",
     purposeBody:
       "MAD (Mobile Assessment & Defense) is an evaluation-only platform. It assesses whether candidate MDM vendors meet a corporate mobile security standard before procurement. It does not enroll devices, push profiles, or enforce compliance.",

@@ -25,6 +25,7 @@ impl std::fmt::Display for VendorId {
 pub struct Vendor {
     pub id: VendorId,
     pub name: String,
+    #[serde(default)]
     pub description: String,
     #[serde(default)]
     pub website: Option<String>,

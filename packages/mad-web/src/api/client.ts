@@ -175,6 +175,16 @@ export async function exportVendorsJson(): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export function loadExampleVendors(): Promise<{
+  result: VendorImportResult;
+  workspace: EvaluationWorkspace;
+}> {
+  return fetchJson<{ result: VendorImportResult; workspace: EvaluationWorkspace }>(
+    "/api/workspace/vendors/load-example",
+    { method: "POST" },
+  );
+}
+
 export function importVendorsJson(
   file: VendorSetFile,
   mode: VendorImportMode = "merge",
@@ -316,8 +326,16 @@ const REPORT_FILENAMES: Record<ReportFormat, string> = {
   pdf: "mad-evaluation-report.pdf",
 };
 
-export async function downloadReport(format: ReportFormat): Promise<void> {
-  const response = await fetch(`/api/report.${format}`);
+export async function downloadReport(
+  format: ReportFormat,
+  locale: "en" | "fr" = "en",
+  tags: string[] = [],
+): Promise<void> {
+  const params = new URLSearchParams();
+  if (format === "html") params.set("lang", locale);
+  if (tags.length > 0) params.set("tags", tags.join(","));
+  const query = params.toString();
+  const response = await fetch(`/api/report.${format}${query ? `?${query}` : ""}`);
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`${response.status} ${response.statusText} — ${body}`);

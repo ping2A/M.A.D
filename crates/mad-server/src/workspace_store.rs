@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use mad_core::{
-    evaluation::sample_vendors, migrate_legacy_vendor_privacy, EvaluationWorkspace, PolicyBundle,
+    migrate_legacy_vendor_privacy, migrate_workspace, EvaluationWorkspace, PolicyBundle,
 };
 use tokio::sync::RwLock;
 
@@ -37,6 +37,7 @@ impl WorkspaceStore {
         } else {
             default_workspace(policy)
         };
+        let workspace = migrate_workspace(workspace);
 
         let store = Self {
             path,
@@ -80,14 +81,7 @@ impl WorkspaceStore {
 }
 
 fn default_workspace(policy: &PolicyBundle) -> EvaluationWorkspace {
-    let mut workspace = EvaluationWorkspace::from_policy(policy);
-    for (vendor, assessment) in sample_vendors() {
-        workspace.vendors.push(vendor);
-        workspace
-            .assessments
-            .insert(assessment.vendor_id.0.clone(), assessment);
-    }
-    workspace
+    EvaluationWorkspace::from_policy(policy)
 }
 
 pub fn workspace_path(data_dir: &Path) -> PathBuf {

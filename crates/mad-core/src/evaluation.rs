@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,13 @@ pub struct RequirementResult {
     pub severity: crate::pillar::RequirementSeverity,
     pub status: ComplianceStatus,
     pub notes: Option<String>,
+    /// When false, this criterion does not apply to the vendor (no tag overlap) and is excluded from scores.
+    #[serde(default = "default_applicable")]
+    pub applicable: bool,
+}
+
+fn default_applicable() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +142,7 @@ impl Evaluator {
             .bundle
             .pillars
             .iter()
-            .map(|pillar| self.evaluate_pillar(pillar, assessment))
+            .map(|pillar| self.evaluate_pillar(pillar, assessment, &vendor))
             .collect();
 
         let overall_score = compute_overall_score(vendor.clone(), &pillars);
@@ -147,11 +154,17 @@ impl Evaluator {
         }
     }
 
-    fn evaluate_pillar(&self, pillar: &Pillar, assessment: &VendorAssessment) -> PillarEvaluation {
+    fn evaluate_pillar(
+        &self,
+        pillar: &Pillar,
+        assessment: &VendorAssessment,
+        vendor: &Vendor,
+    ) -> PillarEvaluation {
         let requirements: Vec<RequirementResult> = pillar
             .requirements
             .iter()
             .map(|req| {
+                let applicable = requirement_applies_to_vendor(&req.tags, &vendor.tags);
                 let assessment_entry = assessment.requirements.get(&req.id);
                 RequirementResult {
                     requirement_id: req.id.clone(),
@@ -161,11 +174,17 @@ impl Evaluator {
                         .map(|a| a.status)
                         .unwrap_or(ComplianceStatus::Untested),
                     notes: assessment_entry.and_then(|a| a.notes.clone()),
+                    applicable,
                 }
             })
             .collect();
 
-        let score = score_pillar(&pillar.id, &requirements, &self.scoring);
+        let scored: Vec<RequirementResult> = requirements
+            .iter()
+            .filter(|r| r.applicable)
+            .cloned()
+            .collect();
+        let score = score_pillar(&pillar.id, &scored, &self.scoring);
 
         PillarEvaluation {
             pillar_id: pillar.id.clone(),
@@ -237,7 +256,8 @@ fn compute_overall_score(
         .iter()
         .flat_map(|p| &p.requirements)
         .filter(|r| {
-            r.severity == crate::pillar::RequirementSeverity::Critical
+            r.applicable
+                && r.severity == crate::pillar::RequirementSeverity::Critical
                 && matches!(
                     r.status,
                     ComplianceStatus::NonCompliant | ComplianceStatus::Untested
@@ -257,6 +277,82 @@ fn compute_overall_score(
         price_score_percent: None,
         composite_score_percent: None,
     }
+}
+
+fn normalize_tag(tag: &str) -> String {
+    tag.trim().to_lowercase()
+}
+
+/// A requirement applies when it has no tags (universal) or shares at least one tag with the vendor.
+pub fn requirement_applies_to_vendor(req_tags: &[String], vendor_tags: &[String]) -> bool {
+    let req: HashSet<String> = req_tags
+        .iter()
+        .map(|t| normalize_tag(t))
+        .filter(|t| !t.is_empty())
+        .collect();
+    if req.is_empty() {
+        return true;
+    }
+    let vendor: HashSet<String> = vendor_tags
+        .iter()
+        .map(|t| normalize_tag(t))
+        .filter(|t| !t.is_empty())
+        .collect();
+    if vendor.is_empty() {
+        return false;
+    }
+    req.iter().any(|t| vendor.contains(t))
+}
+
+/// Parses a comma-separated tag list from a query string (`shortlist,ios`).
+pub fn parse_vendor_tags_query(raw: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut tags = Vec::new();
+    for part in raw.split(',') {
+        let tag = part.trim().to_lowercase();
+        if tag.is_empty() || !seen.insert(tag.clone()) {
+            continue;
+        }
+        tags.push(tag);
+    }
+    tags
+}
+
+pub fn vendor_matches_tags(vendor: &Vendor, tags: &[String]) -> bool {
+    if tags.is_empty() {
+        return true;
+    }
+    let active: HashSet<&str> = tags.iter().map(String::as_str).collect();
+    vendor.tags.iter().any(|t| {
+        let normalized = t.trim().to_lowercase();
+        active.contains(normalized.as_str())
+    })
+}
+
+/// Keeps vendors matching any active tag and recomputes price/composite scores for the subset.
+pub fn filter_evaluation_by_tags(mut report: EvaluationReport, tags: &[String]) -> EvaluationReport {
+    if tags.is_empty() {
+        return report;
+    }
+    report
+        .vendors
+        .retain(|result| vendor_matches_tags(&result.vendor, tags));
+    apply_price_ranking(&mut report.vendors, &report.procurement);
+    report
+}
+
+pub fn filter_vendor_map<T: Clone>(
+    map: &HashMap<String, T>,
+    vendors: &[EvaluationResult],
+) -> HashMap<String, T> {
+    let ids: HashSet<&str> = vendors
+        .iter()
+        .map(|v| v.vendor.id.0.as_str())
+        .collect();
+    map.iter()
+        .filter(|(id, _)| ids.contains(id.as_str()))
+        .map(|(id, value)| (id.clone(), value.clone()))
+        .collect()
 }
 
 fn apply_price_ranking(results: &mut [EvaluationResult], procurement: &ProcurementConfig) {
@@ -329,7 +425,35 @@ pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
             global_price: None,
             notes: Some("Typical enterprise per-device list price".into()),
         }),
-        tags: vec!["cloud".into(), "microsoft".into(), "shortlist".into()],
+        tags: vec![
+            "cloud".into(),
+            "microsoft".into(),
+            "shortlist".into(),
+            "containerization".into(),
+            "dlp".into(),
+            "zero-trust".into(),
+            "idp".into(),
+            "conditional-access".into(),
+            "jailbreak".into(),
+            "root".into(),
+            "remediation".into(),
+            "isolation".into(),
+            "forensics".into(),
+            "volatile-memory".into(),
+            "triage".into(),
+            "logs".into(),
+            "silent".into(),
+            "siem".into(),
+            "audit".into(),
+            "api".into(),
+            "android".into(),
+            "android-enterprise".into(),
+            "work-profile".into(),
+            "cobo".into(),
+            "kiosk".into(),
+            "oemconfig".into(),
+            "knox".into(),
+        ],
     };
 
     let jamf = Vendor {
@@ -344,7 +468,26 @@ pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
             global_price: None,
             notes: None,
         }),
-        tags: vec!["apple".into(), "ios".into()],
+        tags: vec![
+            "apple".into(),
+            "ios".into(),
+            "containerization".into(),
+            "dlp".into(),
+            "abm".into(),
+            "supervised".into(),
+            "jailbreak".into(),
+            "root".into(),
+            "remediation".into(),
+            "isolation".into(),
+            "forensics".into(),
+            "volatile-memory".into(),
+            "triage".into(),
+            "logs".into(),
+            "silent".into(),
+            "siem".into(),
+            "audit".into(),
+            "api".into(),
+        ],
     };
 
     let workspace_one = Vendor {
@@ -359,7 +502,26 @@ pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
             global_price: Some(50_000.0),
             notes: Some("Platform fee plus annual per-device license".into()),
         }),
-        tags: vec!["uem".into(), "shortlist".into()],
+        tags: vec![
+            "uem".into(),
+            "shortlist".into(),
+            "containerization".into(),
+            "dlp".into(),
+            "zero-trust".into(),
+            "jailbreak".into(),
+            "root".into(),
+            "remediation".into(),
+            "android".into(),
+            "android-enterprise".into(),
+            "work-profile".into(),
+            "cobo".into(),
+            "kiosk".into(),
+            "oemconfig".into(),
+            "knox".into(),
+            "siem".into(),
+            "audit".into(),
+            "api".into(),
+        ],
     };
 
     fn assess(
@@ -439,6 +601,24 @@ pub fn sample_vendors() -> Vec<(Vendor, VendorAssessment)> {
     ]
 }
 
+/// Pre-filled vendor set (Intune, Jamf, Workspace ONE) for demos and onboarding.
+pub fn sample_vendor_set_file() -> crate::vendor_set::VendorSetFile {
+    use crate::vendor_set::VendorSetFile;
+    let samples = sample_vendors();
+    let vendors: Vec<Vendor> = samples.iter().map(|(v, _)| v.clone()).collect();
+    let assessments: HashMap<String, VendorAssessment> = samples
+        .into_iter()
+        .map(|(v, a)| (v.id.0.clone(), a))
+        .collect();
+    VendorSetFile::new(
+        "sample",
+        vendors,
+        assessments,
+        HashMap::new(),
+        HashMap::new(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,5 +633,88 @@ mod tests {
         let report = evaluator.evaluate().expect("report");
         assert_eq!(report.vendors.len(), 3);
         assert!(report.total_requirements > 0);
+    }
+
+    #[test]
+    fn requirement_applies_when_tags_overlap() {
+        assert!(requirement_applies_to_vendor(
+            &["ios".into(), "apple".into()],
+            &["apple".into()],
+        ));
+        assert!(!requirement_applies_to_vendor(
+            &["android".into()],
+            &["apple".into(), "ios".into()],
+        ));
+        assert!(requirement_applies_to_vendor(&[], &["anything".into()]));
+        assert!(!requirement_applies_to_vendor(
+            &["cloud".into()],
+            &[],
+        ));
+        assert!(requirement_applies_to_vendor(
+            &["Cloud".into()],
+            &["cloud".into()],
+        ));
+    }
+
+    #[test]
+    fn scores_exclude_non_applicable_requirements() {
+        use crate::vendor::VendorId;
+
+        let dir = std::path::Path::new("policies");
+        if !dir.exists() {
+            return;
+        }
+        let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let mut evaluator = Evaluator::new(bundle);
+        let vendor = Vendor {
+            id: VendorId::new("apple-only"),
+            name: "Apple MDM".into(),
+            description: String::new(),
+            website: None,
+            pricing: None,
+            tags: vec!["apple".into(), "ios".into()],
+        };
+        let assessment = VendorAssessment {
+            vendor_id: VendorId::new("apple-only"),
+            requirements: HashMap::new(),
+        };
+        evaluator.add_vendor(vendor, assessment);
+        let report = evaluator.evaluate().expect("report");
+        let result = &report.vendors[0];
+        let abm = result
+            .pillars
+            .iter()
+            .flat_map(|p| &p.requirements)
+            .find(|r| r.requirement_id == "plat-001")
+            .expect("abm requirement");
+        assert!(abm.applicable);
+        let android_kiosk = result
+            .pillars
+            .iter()
+            .flat_map(|p| &p.requirements)
+            .find(|r| r.requirement_id == "plat-002")
+            .expect("android kiosk requirement");
+        assert!(!android_kiosk.applicable);
+        assert!(
+            result.overall_score.overall_score_percent < 100.0
+                || android_kiosk.status == ComplianceStatus::Untested
+        );
+    }
+
+    #[test]
+    fn filter_evaluation_by_tags_keeps_matches() {
+        let dir = std::path::Path::new("policies");
+        if !dir.exists() {
+            return;
+        }
+        let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let mut evaluator = Evaluator::new(bundle);
+        for (vendor, assessment) in sample_vendors() {
+            evaluator.add_vendor(vendor, assessment);
+        }
+        let mut report = evaluator.evaluate().expect("report");
+        report.vendors[0].vendor.tags = vec!["shortlist".into()];
+        let filtered = filter_evaluation_by_tags(report, &["shortlist".into()]);
+        assert_eq!(filtered.vendors.len(), 1);
     }
 }

@@ -75,6 +75,12 @@ export interface Translations {
     gaps: string;
     vendorTitle: string;
     criticalGaps: string;
+    filterTags: string;
+    filterTagsHint: string;
+    clearTags: string;
+    noTags: string;
+    noVendorsFiltered: string;
+    filterCount: string;
   };
   workspaceData: {
     title: string;
@@ -88,6 +94,8 @@ export interface Translations {
     importFullConfirm: string;
     importFullSuccess: string;
     importFullSuccessWithVsm: string;
+    importFullSuccessWithDocs: string;
+    importFullSuccessWithVsmAndDocs: string;
     importVendorsReplaceConfirm: string;
     importVendorsSuccess: string;
     importVendorsSuccessWithVsm: string;
@@ -149,6 +157,11 @@ export interface Translations {
     title: string;
     intro: string;
     add: string;
+    loadExample: string;
+    loadExampleHint: string;
+    loadExampleSuccess: string;
+    emptyTitle: string;
+    emptyHint: string;
     new: string;
     edit: string;
     vendor: string;
@@ -256,6 +269,8 @@ export interface Translations {
     showingRequirements: string;
     cellStats: string;
     scoredCount: string;
+    notApplicable: string;
+    notApplicableShort: string;
     noResults: string;
     noResultsHint: string;
     expandRequirement: string;
@@ -489,6 +504,10 @@ export interface Translations {
     downloadPdf: string;
     downloading: string;
     downloadError: string;
+    openLiveReport: string;
+    embedPreviewTitle: string;
+    embedPreviewHint: string;
+    tagsFilterActive: string;
     purposeTitle: string;
     purposeBody: string;
     inScope: string;

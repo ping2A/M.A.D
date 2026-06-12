@@ -93,6 +93,22 @@ export function recomputeSubsetScores(
   return cloned;
 }
 
+export function normalizeTag(tag: string): string {
+  return tag.trim().toLowerCase();
+}
+
+/** A requirement applies when untagged (universal) or it shares at least one tag with the vendor. */
+export function requirementAppliesToVendor(
+  requirementTags: string[] | undefined,
+  vendorTags: string[] | undefined,
+): boolean {
+  const req = (requirementTags ?? []).map(normalizeTag).filter(Boolean);
+  if (req.length === 0) return true;
+  const vendor = new Set((vendorTags ?? []).map(normalizeTag).filter(Boolean));
+  if (vendor.size === 0) return false;
+  return req.some((t) => vendor.has(t));
+}
+
 export function collectVendorTags(evaluation: EvaluationReport): string[] {
   const tags = new Set<string>();
   for (const v of evaluation.vendors) {
@@ -138,4 +154,10 @@ export function parseTagsInput(raw: string): string[] {
 
 export function formatTagsInput(tags?: string[] | null): string {
   return (tags ?? []).join(", ");
+}
+
+export function reportTagsQuery(tags: Iterable<string>): string {
+  const list = [...tags];
+  if (list.length === 0) return "";
+  return `tags=${encodeURIComponent(list.join(","))}`;
 }

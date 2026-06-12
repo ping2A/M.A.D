@@ -9,13 +9,24 @@ use crate::scoring::ScoringConfig;
 use crate::vendor_doc::{deserialize_vendor_docs, normalize_vendor_doc_section, VendorDocSection};
 use crate::value_stream::{deserialize_vendor_value_streams, ValueStreamEntry, ValueStreamMap};
 use crate::vendor::{Vendor, VendorAssessment, VendorId};
+use crate::evaluation::sample_vendor_set_file;
 use crate::vendor_set::{
     sanitize_assessment, VendorImportMode, VendorImportResult, VendorSetFile,
 };
 
+/// Workspace on-disk format. Bumped when persisted shape or defaults change.
+pub const WORKSPACE_FORMAT_VERSION: u32 = 2;
+
+fn legacy_workspace_format_version() -> u32 {
+    1
+}
+
 /// Mutable evaluation workspace: criteria, vendors, assessments, and scoring rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluationWorkspace {
+    /// `1` = legacy (may include pre-seeded sample vendors). `2` = empty vendors by default.
+    #[serde(default = "legacy_workspace_format_version")]
+    pub format_version: u32,
     pub policy_version: String,
     pub scoring: ScoringConfig,
     #[serde(default)]
@@ -42,6 +53,7 @@ impl EvaluationWorkspace {
             .unwrap_or_else(|| "1.0.0".into());
 
         Self {
+            format_version: WORKSPACE_FORMAT_VERSION,
             policy_version,
             scoring: ScoringConfig::default(),
             procurement: ProcurementConfig::default(),
@@ -51,6 +63,13 @@ impl EvaluationWorkspace {
             value_streams: HashMap::new(),
             vendor_docs: HashMap::new(),
         }
+    }
+
+    pub fn clear_vendor_data(&mut self) {
+        self.vendors.clear();
+        self.assessments.clear();
+        self.value_streams.clear();
+        self.vendor_docs.clear();
     }
 
     pub fn vendor_docs_for(&self, vendor_id: &str) -> &[VendorDocSection] {
@@ -425,6 +444,11 @@ impl EvaluationWorkspace {
         self.vendor_docs.values().map(|sections| sections.len()).sum()
     }
 
+    /// Loads the built-in example vendors (Intune, Jamf, Workspace ONE) with sample assessments.
+    pub fn import_sample_vendors(&mut self) -> VendorImportResult {
+        self.import_vendor_set(sample_vendor_set_file(), VendorImportMode::Merge)
+    }
+
     pub fn import_vendor_set(
         &mut self,
         file: VendorSetFile,
@@ -498,6 +522,44 @@ impl EvaluationWorkspace {
             import_vendor_docs(&mut self.vendor_docs, &file.vendor_docs, &imported_vendor_ids, mode);
 
         result
+    }
+}
+
+/// One-time upgrades for workspaces loaded from disk (criteria/scoring/procurement preserved).
+pub fn migrate_workspace(mut workspace: EvaluationWorkspace) -> EvaluationWorkspace {
+    if workspace.format_version < WORKSPACE_FORMAT_VERSION {
+        workspace.clear_vendor_data();
+        workspace.format_version = WORKSPACE_FORMAT_VERSION;
+    }
+    workspace
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migrate_workspace_clears_legacy_vendors() {
+        let dir = std::path::Path::new("policies");
+        if !dir.exists() {
+            return;
+        }
+        let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let mut ws = EvaluationWorkspace::from_policy(&bundle);
+        ws.format_version = 1;
+        ws.vendors.push(Vendor {
+            id: VendorId::new("intune"),
+            name: "Intune".into(),
+            description: String::new(),
+            website: None,
+            pricing: None,
+            tags: vec![],
+        });
+        ws.value_streams.insert("intune".into(), vec![]);
+        let migrated = migrate_workspace(ws);
+        assert_eq!(migrated.format_version, WORKSPACE_FORMAT_VERSION);
+        assert!(migrated.vendors.is_empty());
+        assert!(migrated.value_streams.is_empty());
     }
 }
 

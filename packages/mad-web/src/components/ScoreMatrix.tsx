@@ -10,6 +10,7 @@ import type {
   PillarId,
   RequirementSeverity,
 } from "../types";
+import { requirementAppliesToVendor } from "../utils/comparisonFilter";
 import { scoreColor } from "../utils/scoring";
 
 interface ScoreMatrixProps {
@@ -34,6 +35,7 @@ interface FlatRequirement {
   severity: RequirementSeverity;
   pillarId: PillarId;
   platforms: string[];
+  tags: string[];
 }
 
 const LEGEND_STATUSES: ComplianceStatus[] = [
@@ -47,14 +49,20 @@ function getAssessment(
   evaluation: EvaluationReport,
   vendorId: string,
   requirementId: string,
-): { status: ComplianceStatus; notes: string | null } {
+): { status: ComplianceStatus; notes: string | null; applicable: boolean } {
   const vendor = evaluation.vendors.find((v) => v.vendor.id === vendorId);
-  if (!vendor) return { status: "untested", notes: null };
+  if (!vendor) return { status: "untested", notes: null, applicable: true };
   for (const pillar of vendor.pillars) {
     const req = pillar.requirements.find((r) => r.requirement_id === requirementId);
-    if (req) return { status: req.status, notes: req.notes };
+    if (req) {
+      return {
+        status: req.status,
+        notes: req.notes,
+        applicable: req.applicable !== false,
+      };
+    }
   }
-  return { status: "untested", notes: null };
+  return { status: "untested", notes: null, applicable: true };
 }
 
 export function ScoreMatrix({
@@ -87,10 +95,18 @@ export function ScoreMatrix({
           severity: r.severity,
           pillarId: p.id,
           platforms: r.platforms,
+          tags: r.tags ?? [],
         })),
       ),
     [pillars],
   );
+
+  const isApplicable = (vendorId: string, req: FlatRequirement) => {
+    const fromEval = getAssessment(evaluation, vendorId, req.id);
+    if (!fromEval.applicable) return false;
+    const vendor = vendors.find((v) => v.id === vendorId);
+    return requirementAppliesToVendor(req.tags, vendor?.tags);
+  };
 
   const vendorStatusesForReq = (reqId: string) =>
     vendors.map((v) => ({
@@ -116,11 +132,15 @@ export function ScoreMatrix({
     }
     if (quickFilter === "untested") {
       reqs = reqs.filter((r) =>
-        vendors.some((v) => getAssessment(evaluation, v.id, r.id).status === "untested"),
+        vendors.some((v) => {
+          if (!isApplicable(v.id, r)) return false;
+          return getAssessment(evaluation, v.id, r.id).status === "untested";
+        }),
       );
     } else if (quickFilter === "gaps") {
       reqs = reqs.filter((r) =>
         vendors.some((v) => {
+          if (!isApplicable(v.id, r)) return false;
           const s = getAssessment(evaluation, v.id, r.id).status;
           return s === "non_compliant" || s === "partial" || s === "untested";
         }),
@@ -161,8 +181,11 @@ export function ScoreMatrix({
     let totalCells = 0;
     let untestedCells = 0;
     let gapCells = 0;
+    const reqById = new Map(requirements.map((r) => [r.id, r]));
     for (const v of vendors) {
       for (const id of reqIds) {
+        const req = reqById.get(id);
+        if (!req || !isApplicable(v.id, req)) continue;
         totalCells += 1;
         const s = getAssessment(evaluation, v.id, id).status;
         if (s === "untested") untestedCells += 1;
@@ -173,18 +196,19 @@ export function ScoreMatrix({
   }, [requirements, vendors, evaluation]);
 
   const vendorStats = useMemo(() => {
-    const reqIds = requirements.map((r) => r.id);
     return vendors.map((v) => {
       const result = evaluation.vendors.find((e) => e.vendor.id === v.id);
       const score = result?.overall_score.overall_score_percent ?? 0;
       let scored = 0;
       let untested = 0;
-      for (const id of reqIds) {
-        const s = getAssessment(evaluation, v.id, id).status;
+      let total = 0;
+      for (const req of requirements) {
+        if (!isApplicable(v.id, req)) continue;
+        total += 1;
+        const s = getAssessment(evaluation, v.id, req.id).status;
         if (s === "untested") untested += 1;
         else scored += 1;
       }
-      const total = reqIds.length;
       const pct = total > 0 ? (scored / total) * 100 : 0;
       return { vendor: v, score, scored, untested, total, pct };
     });
@@ -401,6 +425,20 @@ export function ScoreMatrix({
                         />
                       </td>
                       {vendors.map((v) => {
+                        const applicable = isApplicable(v.id, req);
+                        if (!applicable) {
+                          return (
+                            <td
+                              key={v.id}
+                              className="matrix-status-td matrix-na-cell"
+                              title={t.matrix.notApplicable}
+                            >
+                              <span className="matrix-na-label" aria-label={t.matrix.notApplicable}>
+                                {t.matrix.notApplicableShort}
+                              </span>
+                            </td>
+                          );
+                        }
                         const { status, notes } = getAssessment(evaluation, v.id, req.id);
                         return (
                           <td key={v.id} className="matrix-status-td">

@@ -1,21 +1,25 @@
 import type { EvaluationReport, PolicySummary } from "../types";
 import { useLocale } from "../i18n/LocaleContext";
+import { rankVendors } from "../utils/ranking";
 import { RequirementList } from "./RequirementList";
 import { ReportDownloads } from "./ReportDownloads";
+import { ReportEmbedPreview } from "./ReportEmbedPreview";
 import { VendorScorecard } from "./VendorScorecard";
 
 interface TechnicalReportProps {
   policy: PolicySummary;
   evaluation: EvaluationReport;
+  activeTags?: Set<string>;
 }
 
-export function TechnicalReport({ policy, evaluation }: TechnicalReportProps) {
+export function TechnicalReport({
+  policy,
+  evaluation,
+  activeTags = new Set(),
+}: TechnicalReportProps) {
   const { t, format } = useLocale();
-  const rankedVendors = [...evaluation.vendors].sort(
-    (a, b) =>
-      b.overall_score.overall_score_percent -
-      a.overall_score.overall_score_percent,
-  );
+  const rankedVendors = rankVendors(evaluation);
+  const tagList = [...activeTags].join(", ");
 
   return (
     <section className="tech-report">
@@ -28,8 +32,16 @@ export function TechnicalReport({ policy, evaluation }: TechnicalReportProps) {
             vendors: evaluation.vendors.length,
           })}
         </p>
-        <ReportDownloads />
+        <ReportDownloads activeTags={activeTags} />
       </div>
+
+      {activeTags.size > 0 && (
+        <p className="report-tag-filter-note">
+          {format(t.report.tagsFilterActive, { tags: tagList })}
+        </p>
+      )}
+
+      <ReportEmbedPreview activeTags={activeTags} />
 
       <article className="report-block">
         <h3>{t.report.purposeTitle}</h3>
@@ -136,6 +148,16 @@ EvaluationReport → CLI / API / Dashboard`}</pre>
         .report-meta {
           font-family: var(--font-mono); font-size: 0.85rem;
           color: var(--mad-text-muted); margin: 0;
+        }
+        .report-tag-filter-note {
+          margin: -0.5rem 0 1rem;
+          padding: 0.65rem 0.9rem;
+          border-radius: 8px;
+          background: #f0fbff;
+          border: 1px solid var(--mad-cyan);
+          font-size: 0.85rem;
+          color: var(--mad-navy);
+          font-weight: 600;
         }
         .report-block {
           background: white; border-radius: 10px; padding: 1.5rem;

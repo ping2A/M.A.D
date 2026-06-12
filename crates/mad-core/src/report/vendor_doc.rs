@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::report::locale::{self, ReportLocale};
 use crate::vendor_doc::{resolve_doc_color, VendorDocItem, VendorDocSection};
 
 pub use crate::vendor_doc::any_vendor_docs;
@@ -48,14 +49,20 @@ pub fn render_vendor_doc_markdown(
 
 pub fn render_vendor_doc_html(
     vendor_name: &str,
+    vendor_id: &str,
     section: &VendorDocSection,
     escape_html: fn(&str) -> String,
+    interactive: bool,
+    report_locale: ReportLocale,
 ) -> String {
     if section.is_empty() {
         return String::new();
     }
     let mut out = String::new();
-    out.push_str("  <article class=\"vendor-doc-report-card\">\n");
+    out.push_str(&format!(
+        "  <article class=\"vendor-doc-report-card\" data-vendor-docs=\"{}\">\n",
+        escape_html(vendor_id)
+    ));
     out.push_str(&format!(
         "    <h3>{} — {}</h3>\n",
         escape_html(vendor_name),
@@ -63,6 +70,9 @@ pub fn render_vendor_doc_html(
     ));
     if let Some(overview) = section.overview.as_deref().filter(|s| !s.trim().is_empty()) {
         out.push_str(&format!("    <p class=\"muted\">{}</p>\n", escape_html(overview)));
+    }
+    if interactive {
+        out.push_str(&render_doc_color_filter(&section.items, escape_html, report_locale));
     }
     for group in groups_in_order(&section.items) {
         let items: Vec<_> = section
@@ -82,10 +92,17 @@ pub fn render_vendor_doc_html(
             out.push_str("    <ul class=\"vendor-doc-item-list\">\n");
         }
         for item in items {
-            let style = resolve_doc_color(item.color.as_deref())
-                .map(|hex| format!(" style=\"border-left: 4px solid {hex}\""))
+            let hex = resolve_doc_color(item.color.as_deref());
+            let style = hex
+                .as_ref()
+                .map(|h| format!(" style=\"border-left: 4px solid {h}\""))
                 .unwrap_or_default();
-            out.push_str(&format!("      <li class=\"vendor-doc-item\"{style}>\n"));
+            let color_attr = hex
+                .map(|h| format!(" data-doc-color=\"{h}\""))
+                .unwrap_or_else(|| " data-doc-color=\"neutral\"".into());
+            out.push_str(&format!(
+                "      <li class=\"vendor-doc-item\"{color_attr}{style}>\n"
+            ));
             out.push_str(&format!(
                 "        <strong>{}</strong>",
                 escape_html(&item.title)
@@ -139,14 +156,84 @@ pub fn render_all_vendor_docs_markdown(
 
 pub fn render_all_vendor_docs_html(
     vendor_name: &str,
+    vendor_id: &str,
     sections: &[VendorDocSection],
     escape_html: fn(&str) -> String,
+    interactive: bool,
+    report_locale: ReportLocale,
 ) -> String {
     sections
         .iter()
         .filter(|s| !s.is_empty())
-        .map(|section| render_vendor_doc_html(vendor_name, section, escape_html))
+        .map(|section| {
+            render_vendor_doc_html(
+                vendor_name,
+                vendor_id,
+                section,
+                escape_html,
+                interactive,
+                report_locale,
+            )
+        })
         .collect()
+}
+
+fn render_doc_color_filter(
+    items: &[VendorDocItem],
+    escape_html: fn(&str) -> String,
+    report_locale: ReportLocale,
+) -> String {
+    let s = locale::strings(report_locale);
+    let mut colors: Vec<String> = Vec::new();
+    for item in items {
+        let c = resolve_doc_color(item.color.as_deref()).unwrap_or_else(|| "neutral".into());
+        if !colors.contains(&c) {
+            colors.push(c);
+        }
+    }
+    if colors.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "    <div class=\"mad-doc-filter\" role=\"group\" aria-label=\"Filter by highlight color\">\n",
+    );
+    out.push_str(&format!(
+        "      <button type=\"button\" data-doc-color=\"all\" class=\"active\">{}</button>\n",
+        escape_html(s.doc_filter_all)
+    ));
+    for color in colors {
+        let swatch = if color == "neutral" {
+            String::new()
+        } else {
+            format!(
+                "<span class=\"mad-color-swatch\" style=\"background:{}\"></span>",
+                escape_html(&color)
+            )
+        };
+        out.push_str(&format!(
+            "      <button type=\"button\" data-doc-color=\"{}\">{swatch}{}</button>\n",
+            escape_html(&color),
+            escape_html(&color_label(&color, report_locale)),
+        ));
+    }
+    out.push_str("    </div>\n");
+    out
+}
+
+fn color_label(hex: &str, report_locale: ReportLocale) -> String {
+    match (report_locale, hex) {
+        (ReportLocale::Fr, "#ef4444" | "#dc3545") => "Critique".into(),
+        (ReportLocale::Fr, "#f59e0b" | "#e6a800") => "Attention".into(),
+        (ReportLocale::Fr, "#3b82f6" | "#1e88e5" | "#00b4d8") => "Info".into(),
+        (ReportLocale::Fr, "#22c55e" | "#28a745") => "OK".into(),
+        (ReportLocale::Fr, "neutral") => "Défaut".into(),
+        (_, "#ef4444" | "#dc3545") => "Critical".into(),
+        (_, "#f59e0b" | "#e6a800") => "Warning".into(),
+        (_, "#3b82f6" | "#1e88e5" | "#00b4d8") => "Info".into(),
+        (_, "#22c55e" | "#28a745") => "Success".into(),
+        (_, "neutral") => "Default".into(),
+        (_, other) => other.to_string(),
+    }
 }
 
 pub fn groups_for_pdf(items: &[VendorDocItem]) -> Vec<Option<String>> {

@@ -1,4 +1,6 @@
 mod html;
+mod html_interactive;
+mod locale;
 mod pdf;
 pub mod vendor_doc;
 pub mod vsm;
@@ -11,6 +13,7 @@ use crate::vendor_doc::VendorDocSection;
 use crate::value_stream::ValueStreamEntry;
 
 pub use html::{load_logo_data_uri, render_html, HtmlReportOptions};
+pub use locale::ReportLocale;
 pub use pdf::{render_pdf, PdfReportOptions};
 
 /// Renders a detailed technical evaluation report in Markdown.
@@ -32,18 +35,7 @@ pub fn render_markdown(
     ));
 
     out.push_str("---\n\n");
-    out.push_str("## 1. Purpose and Scope\n\n");
-    out.push_str(
-        "MAD (Mobile Assessment & Defense) is an **evaluation-only** platform. It does not deploy, manage, \
-         or enforce policies on end-user devices. Its sole function is to assess whether \
-         candidate MDM vendors can meet a corporate mobile security standard before procurement.\n\n\
-         **In scope:** iOS and Android MDM/UEM platforms (e.g., Microsoft Intune, Jamf Pro, \
-         VMware Workspace ONE).\n\n\
-         **Out of scope:** Desktop/laptop management, SaaS CASB, network firewalls, \
-         post-selection continuous compliance enforcement.\n\n",
-    );
-
-    out.push_str("## 2. Evaluation Methodology\n\n");
+    out.push_str("## 1. Evaluation Methodology\n\n");
     out.push_str(
         "Vendors are assessed using **Policy-as-Code (PaC)**. Requirements are declared in \
          version-controlled YAML (`policies/mad-standard.yaml`). Each requirement maps to \
@@ -79,7 +71,7 @@ VendorAssessment (per requirement status)  →  EvaluationReport\n\
     );
 
     out.push_str("---\n\n");
-    out.push_str("## 3. Evaluation Pillars and Technical Criteria\n\n");
+    out.push_str("## 2. Evaluation Pillars and Technical Criteria\n\n");
 
     for pillar in &bundle.pillars {
         out.push_str(&format!("### {}\n\n", pillar.name));
@@ -111,7 +103,7 @@ VendorAssessment (per requirement status)  →  EvaluationReport\n\
     }
 
     out.push_str("---\n\n");
-    out.push_str("## 4. Vendor Assessment Results\n\n");
+    out.push_str("## 3. Vendor Assessment Results\n\n");
 
     let mut ranked: Vec<_> = evaluation.vendors.iter().collect();
     ranked.sort_by(|a, b| {
@@ -157,7 +149,7 @@ VendorAssessment (per requirement status)  →  EvaluationReport\n\
         }
     }
 
-    let mut section = 5u8;
+    let mut section = 4u8;
     if vsm::any_value_streams(value_streams) {
         out.push_str("---\n\n");
         out.push_str(&format!("## {section}. Value Stream Maps\n\n"));
@@ -209,6 +201,9 @@ pub fn default_html_options(logo_path: Option<&std::path::Path>) -> HtmlReportOp
     HtmlReportOptions {
         logo_data_uri: logo_path.and_then(load_logo_data_uri),
         generated_at: Some(now_rfc3339()),
+        interactive: true,
+        locale: ReportLocale::En,
+        filter_tags: Vec::new(),
     }
 }
 

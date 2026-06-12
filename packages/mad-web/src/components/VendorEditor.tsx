@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useLocale } from "../i18n/LocaleContext";
-import type { BillingPeriod, EvaluationReport, Vendor, VendorPricing } from "../types";
+import type {
+  BillingPeriod,
+  EvaluationReport,
+  Vendor,
+  VendorImportResult,
+  VendorPricing,
+} from "../types";
 import { formatTagsInput, parseTagsInput } from "../utils/comparisonFilter";
 import { formatMoney, hasPricingInput, pricingSummary } from "../utils/pricing";
 
@@ -9,6 +15,7 @@ interface VendorEditorProps {
   onAdd: (vendor: Vendor) => Promise<void>;
   onUpdate: (id: string, vendor: Vendor) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onLoadExample: () => Promise<VendorImportResult>;
 }
 
 function slugify(name: string): string {
@@ -23,6 +30,7 @@ export function VendorEditor({
   onAdd,
   onUpdate,
   onDelete,
+  onLoadExample,
 }: VendorEditorProps) {
   const { t, format } = useLocale();
   const vendors = evaluation.vendors.map((v) => v.vendor);
@@ -40,6 +48,7 @@ export function VendorEditor({
   const [pricingNotes, setPricingNotes] = useState("");
   const [tagsInput, setTagsInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [exampleMessage, setExampleMessage] = useState<string | null>(null);
 
   const loadPricing = (pricing?: VendorPricing | null) => {
     if (pricing && hasPricingInput(pricing)) {
@@ -107,6 +116,24 @@ export function VendorEditor({
     }
   };
 
+  const handleLoadExample = async () => {
+    setSaving(true);
+    setExampleMessage(null);
+    try {
+      const result = await onLoadExample();
+      setExampleMessage(
+        format(t.vendors.loadExampleSuccess, {
+          added: result.added,
+          updated: result.updated,
+        }),
+      );
+    } catch {
+      setExampleMessage(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id.trim() || !name.trim()) return;
@@ -139,11 +166,31 @@ export function VendorEditor({
           <p className="section-intro">{t.vendors.intro}</p>
         </div>
         {mode === "closed" && (
-          <button type="button" className="btn btn-primary" onClick={openAdd}>
-            {t.vendors.add}
-          </button>
+          <div className="toolbar-actions">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleLoadExample}
+              disabled={saving}
+            >
+              {t.vendors.loadExample}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={openAdd}>
+              {t.vendors.add}
+            </button>
+          </div>
         )}
       </div>
+
+      {vendors.length === 0 && mode === "closed" && (
+        <div className="vendor-empty">
+          <h3>{t.vendors.emptyTitle}</h3>
+          <p>{t.vendors.emptyHint}</p>
+          <p className="vendor-empty-hint">{t.vendors.loadExampleHint}</p>
+        </div>
+      )}
+
+      {exampleMessage && <p className="vendor-example-message">{exampleMessage}</p>}
 
       {(mode === "add" || mode === "edit") && (
         <form className="form-panel" onSubmit={submit}>
@@ -373,6 +420,27 @@ export function VendorEditor({
       </div>
 
       <style>{`
+        .toolbar-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .vendor-empty {
+          background: #f4f8fb;
+          border: 1px dashed var(--mad-cyan);
+          border-radius: var(--mad-radius);
+          padding: 1.25rem 1.5rem;
+          margin-bottom: 1rem;
+        }
+        .vendor-empty h3 {
+          margin: 0 0 0.35rem;
+          color: var(--mad-navy);
+          font-size: 1rem;
+        }
+        .vendor-empty p { margin: 0 0 0.35rem; color: var(--mad-text-muted); font-size: 0.9rem; }
+        .vendor-empty-hint { font-size: 0.82rem !important; }
+        .vendor-example-message {
+          margin: 0 0 1rem;
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: var(--mad-compliant);
+        }
         .desc-cell { color: var(--mad-text-muted); max-width: 36ch; }
         .vendor-link {
           display: block;

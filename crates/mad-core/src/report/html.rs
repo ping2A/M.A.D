@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::evaluation::EvaluationReport;
 use crate::policy::PolicyBundle;
-use crate::report::{vendor_doc, vsm};
+use crate::report::{html_interactive, locale, vendor_doc, vsm};
+use crate::report::locale::ReportLocale;
 use crate::vendor_doc::VendorDocSection;
 use crate::value_stream::ValueStreamEntry;
 use crate::vendor::ComplianceStatus;
@@ -14,6 +15,12 @@ pub struct HtmlReportOptions {
     pub logo_data_uri: Option<String>,
     /// ISO-8601 timestamp shown in the report footer.
     pub generated_at: Option<String>,
+    /// Interactive navigation, VSM pan/zoom, vendor filters (default: true).
+    pub interactive: bool,
+    /// Report UI language.
+    pub locale: ReportLocale,
+    /// Active vendor tag filter (shown in meta bar when non-empty).
+    pub filter_tags: Vec<String>,
 }
 
 pub fn load_logo_data_uri(path: &std::path::Path) -> Option<String> {
@@ -44,14 +51,31 @@ pub fn render_html(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let mut out = String::with_capacity(64 * 1024);
-    out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n");
+    let interactive = options.interactive;
+    let locale = options.locale;
+    let s = locale::strings(locale);
+    let has_vsm = vsm::any_value_streams(value_streams);
+    let has_docs = vendor_doc::any_vendor_docs(vendor_docs);
+
+    let mut out = String::with_capacity(128 * 1024);
+    out.push_str("<!DOCTYPE html>\n<html lang=\"");
+    out.push_str(s.html_lang);
+    out.push_str("\">\n<head>\n");
     out.push_str("<meta charset=\"UTF-8\">\n");
     out.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
-    out.push_str("<title>MAD — Mobile Assessment & Defense — MDM Evaluation Report</title>\n");
+    out.push_str("<title>");
+    out.push_str(s.page_title);
+    out.push_str("</title>\n");
     out.push_str("<style>\n");
     out.push_str(HTML_STYLES);
-    out.push_str("</style>\n</head>\n<body>\n");
+    if interactive {
+        out.push_str(html_interactive::INTERACTIVE_STYLES);
+    }
+    out.push_str("</style>\n</head>\n<body");
+    if interactive {
+        out.push_str(" class=\"mad-interactive\"");
+    }
+    out.push_str(">\n");
 
     // Header
     out.push_str("<header class=\"header\">\n  <div class=\"header-inner\">\n");
@@ -62,60 +86,75 @@ pub fn render_html(
     }
     out.push_str("    <div>\n");
     out.push_str("      <h1>MAD</h1>\n");
-    out.push_str("      <p class=\"subtitle\">Mobile Assessment & Defense — MDM Evaluation Report</p>\n");
+    out.push_str("      <p class=\"subtitle\">");
+    out.push_str(s.subtitle);
+    out.push_str("</p>\n");
     out.push_str("    </div>\n  </div>\n</header>\n");
+
+    if interactive {
+        out.push_str(&html_interactive::render_topbar(&ranked, has_vsm, has_docs, s));
+        out.push_str("<div class=\"mad-layout\">\n");
+        out.push_str(&html_interactive::render_sidebar(s));
+        out.push_str("<div class=\"mad-content\">\n");
+    }
 
     out.push_str("<main class=\"container\">\n");
 
     // Meta bar
     out.push_str("<div class=\"meta-bar\">\n");
     out.push_str(&format!(
-        "  <span><strong>Policy</strong> v{}</span>\n",
+        "  <span><strong>{}</strong> v{}</span>\n",
+        s.meta_policy,
         escape_html(&evaluation.policy_version)
     ));
     out.push_str(&format!(
-        "  <span><strong>Requirements</strong> {} ({} critical)</span>\n",
-        evaluation.total_requirements, evaluation.critical_requirements
+        "  <span><strong>{}</strong> {} ({} critical)</span>\n",
+        s.meta_requirements,
+        evaluation.total_requirements,
+        evaluation.critical_requirements
     ));
     out.push_str(&format!(
-        "  <span><strong>Vendors</strong> {}</span>\n",
+        "  <span><strong>{}</strong> {}</span>\n",
+        s.meta_vendors,
         evaluation.vendors.len()
     ));
     out.push_str(&format!(
-        "  <span><strong>Generated</strong> {}</span>\n",
+        "  <span><strong>{}</strong> {}</span>\n",
+        s.meta_generated,
         escape_html(generated_at)
     ));
-    out.push_str("  <span class=\"scope-tag\">iOS &amp; Android MDM only</span>\n");
+    out.push_str("  <span class=\"scope-tag\">");
+    out.push_str(s.meta_scope);
+    out.push_str("</span>\n");
+    if !options.filter_tags.is_empty() {
+        out.push_str(&format!(
+            "  <span class=\"scope-tag filter-tag\">{} {}</span>\n",
+            s.meta_tags_filter,
+            escape_html(&options.filter_tags.join(", "))
+        ));
+    }
     out.push_str("</div>\n");
 
-    // Section 1: Purpose
-    out.push_str("<section class=\"card\">\n");
-    out.push_str("  <h2>1. Purpose and Scope</h2>\n");
-    out.push_str("  <p>MAD (<strong>M</strong>obile <strong>A</strong>ssessment & <strong>D</strong>efense) is an <strong>evaluation-only</strong> platform. \
-        It assesses whether candidate MDM vendors meet a corporate mobile security standard \
-        before procurement. It does not enroll devices or enforce policies.</p>\n");
-    out.push_str("  <div class=\"scope-grid\">\n");
-    out.push_str("    <div class=\"scope-in\"><h3>In scope</h3><ul>\
-        <li>iOS MDM (ABM, supervised mode)</li>\
-        <li>Android Enterprise (Work Profile, COBO, kiosk)</li>\
-        <li>Vendor capability assessment</li></ul></div>\n");
-    out.push_str("    <div class=\"scope-out\"><h3>Out of scope</h3><ul>\
-        <li>Desktop / laptop management</li>\
-        <li>Post-selection policy enforcement</li>\
-        <li>Device deployment</li></ul></div>\n");
-    out.push_str("  </div>\n</section>\n");
+    if interactive {
+        out.push_str(&html_interactive::render_dashboard(&ranked, score_color, s));
+    }
 
-    // Section 2: Methodology
-    out.push_str("<section class=\"card\">\n");
-    out.push_str("  <h2>2. Evaluation Methodology</h2>\n");
+    // Section 1: Methodology
+    out.push_str("<section class=\"card\" id=\"section-methodology\">\n");
+    out.push_str("  <h2>");
+    out.push_str(s.section_methodology);
+    out.push_str("</h2>\n");
     out.push_str("  <table class=\"data-table\">\n");
-    out.push_str("    <thead><tr><th>Status</th><th>Weight</th><th>Meaning</th></tr></thead>\n");
+    out.push_str(&format!(
+        "    <thead><tr><th>{}</th><th>{}</th><th>{}</th></tr></thead>\n",
+        s.col_status, s.col_weight, s.col_meaning
+    ));
     out.push_str("    <tbody>\n");
     for (status, weight, meaning) in [
-        ("compliant", "1.0", "Native capability, no workarounds"),
-        ("partial", "0.5", "Limited, platform-specific, or manual"),
-        ("non_compliant", "0.0", "Cannot be met"),
-        ("untested", "0.0", "No assessment data"),
+        ("compliant", "1.0", s.meaning_compliant),
+        ("partial", "0.5", s.meaning_partial),
+        ("non_compliant", "0.0", s.meaning_non_compliant),
+        ("untested", "0.0", s.meaning_untested),
     ] {
         out.push_str(&format!(
             "      <tr><td><span class=\"badge status-{status}\">{status}</span></td>\
@@ -127,17 +166,34 @@ pub fn render_html(
 overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
     out.push_str("</section>\n");
 
-    // Section 3: Requirements
-    out.push_str("<section class=\"card\">\n");
-    out.push_str("  <h2>3. Requirements and Technical Criteria</h2>\n");
+    // Section 2: Requirements
+    out.push_str("<section class=\"card\" id=\"section-requirements\">\n");
+    out.push_str("  <h2>");
+    out.push_str(s.section_requirements);
+    out.push_str("</h2>\n");
     for pillar in &bundle.pillars {
-        out.push_str(&format!(
-            "  <h3 class=\"pillar-title\">{}</h3>\n  <p class=\"muted\">{}</p>\n",
-            escape_html(&pillar.name),
-            escape_html(pillar.description.trim())
-        ));
+        let (pillar_name, pillar_desc) = locale::localized_pillar_fields(pillar, locale);
+        if interactive {
+            out.push_str(&format!(
+                "  <details class=\"mad-pillar-details\" open>\n\
+                   <summary>{} <span class=\"muted\">({} {})</span></summary>\n\
+                   <div class=\"mad-pillar-body\">\n\
+                   <p class=\"muted\">{}</p>\n",
+                escape_html(&pillar_name),
+                pillar.requirements.len(),
+                s.requirements_count,
+                escape_html(&pillar_desc)
+            ));
+        } else {
+            out.push_str(&format!(
+                "  <h3 class=\"pillar-title\">{}</h3>\n  <p class=\"muted\">{}</p>\n",
+                escape_html(&pillar_name),
+                escape_html(&pillar_desc)
+            ));
+        }
         for req in &pillar.requirements {
-            let severity = severity_label(req.severity);
+            let severity = locale::severity_label(req.severity, locale);
+            let loc = locale::localize_requirement(req, locale);
             out.push_str("  <div class=\"requirement\">\n");
             out.push_str(&format!(
                 "    <div class=\"req-header\">\
@@ -147,46 +203,67 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
                 escape_html(&req.id),
                 severity.to_lowercase(),
                 severity,
-                escape_html(&req.title)
+                escape_html(&loc.title)
             ));
             out.push_str(&format!(
                 "    <p>{}</p>\n",
-                escape_html(req.description.trim())
+                escape_html(&loc.description)
             ));
             out.push_str(&format!(
-                "    <p class=\"muted\"><strong>Platforms:</strong> {}</p>\n",
+                "    <p class=\"muted\"><strong>{}:</strong> {}</p>\n",
+                s.platforms,
                 escape_html(&req.platforms.join(", "))
             ));
-            if let Some(m) = &req.evaluation_method {
+            if let Some(m) = &loc.evaluation_method {
                 out.push_str(&format!(
-                    "    <div class=\"tech-box\"><strong>Evaluation method</strong><br>{}</div>\n",
+                    "    <div class=\"tech-box\"><strong>{}</strong><br>{}</div>\n",
+                    s.evaluation_method,
                     escape_html(m.trim())
                 ));
             }
-            if let Some(c) = &req.technical_criteria {
+            if let Some(c) = &loc.technical_criteria {
                 out.push_str(&format!(
-                    "    <div class=\"tech-box\"><strong>Technical criteria</strong><br>{}</div>\n",
+                    "    <div class=\"tech-box\"><strong>{}</strong><br>{}</div>\n",
+                    s.technical_criteria,
                     escape_html(c.trim())
                 ));
             }
             out.push_str("  </div>\n");
         }
+        if interactive {
+            out.push_str("  </div></details>\n");
+        }
     }
     out.push_str("</section>\n");
 
-    // Section 4: Vendor results
-    out.push_str("<section class=\"card\">\n");
-    out.push_str("  <h2>4. Vendor Assessment Results</h2>\n");
+    // Section 3: Vendor results
+    out.push_str("<section class=\"card\" id=\"section-results\">\n");
+    out.push_str("  <h2>");
+    out.push_str(s.section_results);
+    out.push_str("</h2>\n");
     for (rank, result) in ranked.iter().enumerate() {
         let score = result.overall_score.overall_score_percent;
+        let collapse_btn = if interactive {
+            format!(
+                "    <button type=\"button\" class=\"mad-vendor-toggle\" data-expand=\"{}\" data-collapse=\"{}\">{}</button>\n",
+                escape_html(s.expand),
+                escape_html(s.collapse),
+                escape_html(s.collapse),
+            )
+        } else {
+            String::new()
+        };
         out.push_str(&format!(
-            "  <article class=\"vendor-card\">\n\
+            "  <article class=\"vendor-card\" data-vendor-id=\"{}\">\n\
                <div class=\"vendor-header\">\n\
                  <span class=\"rank\">#{}</span>\n\
                  <h3>{}</h3>\n\
                  <span class=\"score\" style=\"color:{}\">{:.1}%</span>\n\
+                 {collapse_btn}\
                </div>\n\
-               <p class=\"muted\">{}</p>\n",
+               <p class=\"muted\">{}</p>\n\
+               <div class=\"vendor-pillar-tables\">\n",
+            escape_html(&result.vendor.id.0),
             rank + 1,
             escape_html(&result.vendor.name),
             score_color(score),
@@ -196,57 +273,79 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
 
         for pillar in &result.pillars {
             let ps = pillar.score.score_percent;
+            let pillar_title = locale::pillar_name(&pillar.pillar_id, &pillar.pillar_name, locale);
             out.push_str(&format!(
                 "    <h4>{} — <span style=\"color:{}\">{:.1}%</span></h4>\n",
-                escape_html(&pillar.pillar_name),
+                escape_html(&pillar_title),
                 score_color(ps),
                 ps
             ));
             out.push_str("    <table class=\"data-table compact\">\n");
-            out.push_str("      <thead><tr><th>ID</th><th>Requirement</th><th>Status</th><th>Notes</th></tr></thead>\n");
+            out.push_str(&format!(
+                "      <thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead>\n",
+                s.col_id, s.col_requirement, s.col_status, s.col_notes
+            ));
             out.push_str("      <tbody>\n");
             for req in &pillar.requirements {
-                let status = status_str(req.status);
+                let title = locale::requirement_title(&req.requirement_id, &req.title, locale);
+                let (status_cell, notes_cell) = if req.applicable {
+                    let status = status_str(req.status);
+                    (
+                        format!("<span class=\"badge status-{status}\">{status}</span>"),
+                        escape_html(req.notes.as_deref().unwrap_or("—")),
+                    )
+                } else {
+                    (
+                        format!("<span class=\"badge status-na\">{}</span>", s.status_na),
+                        "—".to_string(),
+                    )
+                };
                 out.push_str(&format!(
                     "        <tr><td><code>{}</code></td><td>{}</td>\
-                     <td><span class=\"badge status-{}\">{}</span></td>\
+                     <td>{}</td>\
                      <td>{}</td></tr>\n",
                     escape_html(&req.requirement_id),
-                    escape_html(&req.title),
-                    status,
-                    status,
-                    escape_html(req.notes.as_deref().unwrap_or("—"))
+                    escape_html(&title),
+                    status_cell,
+                    notes_cell,
                 ));
             }
             out.push_str("      </tbody>\n    </table>\n");
         }
 
         if !result.overall_score.critical_gaps.is_empty() {
-            out.push_str("    <div class=\"gaps\"><strong>Critical gaps</strong><ul>\n");
+            out.push_str(&format!("    <div class=\"gaps\"><strong>{}</strong><ul>\n", s.critical_gaps));
             for gap in &result.overall_score.critical_gaps {
                 out.push_str(&format!("      <li>{}</li>\n", escape_html(gap)));
             }
             out.push_str("    </ul></div>\n");
         }
-        out.push_str("  </article>\n");
+        out.push_str("  </div></article>\n");
     }
     out.push_str("</section>\n");
 
-    let mut section = 5u8;
-    if vsm::any_value_streams(value_streams) {
-        out.push_str("<section class=\"card vsm-report\">\n");
-        out.push_str(&format!("  <h2>{section}. Value Stream Maps</h2>\n"));
-        out.push_str("  <p class=\"muted\">Process flows documented per vendor during evaluation — nodes, \
-            flow types, durations, and responsible authors.</p>\n");
+    let mut section = 4u8;
+    if has_vsm {
+        out.push_str("<section class=\"card vsm-report\" id=\"section-vsm\">\n");
+        out.push_str(&format!("  <h2>{section}. {}</h2>\n", s.section_vsm));
+        out.push_str("  <p class=\"muted\">");
+        out.push_str(s.vsm_intro);
+        out.push_str("</p>\n");
         for result in &evaluation.vendors {
             if let Some(entries) = value_streams.get(&result.vendor.id.0) {
                 for entry in entries {
                     if vsm::map_has_content(&entry.map) {
                         let title = format!("{} — {}", result.vendor.name, entry.name);
+                        let opts = vsm::VsmHtmlOptions {
+                            interactive,
+                            vendor_id: Some(result.vendor.id.0.clone()),
+                            locale,
+                        };
                         out.push_str(&vsm::render_vsm_html_section(
                             &title,
                             &entry.map,
                             escape_html,
+                            &opts,
                         ));
                     }
                 }
@@ -256,17 +355,21 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
         section += 1;
     }
 
-    if vendor_doc::any_vendor_docs(vendor_docs) {
-        out.push_str("<section class=\"card vendor-doc-report\">\n");
-        out.push_str(&format!("  <h2>{section}. Vendor Documentation</h2>\n"));
-        out.push_str("  <p class=\"muted\">User-defined per-vendor documentation (e.g. privacy, support). \
-            Informational only — not included in capability scores.</p>\n");
+    if has_docs {
+        out.push_str("<section class=\"card vendor-doc-report\" id=\"section-docs\">\n");
+        out.push_str(&format!("  <h2>{section}. {}</h2>\n", s.section_docs));
+        out.push_str("  <p class=\"muted\">");
+        out.push_str(s.docs_intro);
+        out.push_str("</p>\n");
         for result in &evaluation.vendors {
             if let Some(sections) = vendor_docs.get(&result.vendor.id.0) {
                 out.push_str(&vendor_doc::render_all_vendor_docs_html(
                     &result.vendor.name,
+                    &result.vendor.id.0,
                     sections,
                     escape_html,
+                    interactive,
+                    locale,
                 ));
             }
         }
@@ -274,8 +377,21 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
     }
 
     out.push_str("</main>\n");
-    out.push_str("<footer class=\"footer\">Generated by MAD — Mobile Assessment & Defense. \
-        Sample assessments for demonstration; production evaluations require lab validation.</footer>\n");
+
+    if interactive {
+        out.push_str("</div></div>\n");
+        out.push_str(&html_interactive::render_payload_script(
+            bundle,
+            evaluation,
+            value_streams,
+            vendor_docs,
+            s,
+        ));
+    }
+
+    out.push_str("<footer class=\"footer\">");
+    out.push_str(s.footer);
+    out.push_str("</footer>\n");
     out.push_str("</body>\n</html>\n");
 
     out
@@ -286,14 +402,6 @@ fn escape_html(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-fn severity_label(severity: crate::pillar::RequirementSeverity) -> &'static str {
-    match severity {
-        crate::pillar::RequirementSeverity::Critical => "CRITICAL",
-        crate::pillar::RequirementSeverity::High => "HIGH",
-        crate::pillar::RequirementSeverity::Medium => "MEDIUM",
-    }
 }
 
 fn status_str(status: ComplianceStatus) -> &'static str {
@@ -385,6 +493,7 @@ body { font-family: var(--font); color: var(--text); background: var(--bg); line
 .status-partial { background: #fff8e1; color: var(--partial); }
 .status-non_compliant { background: #fde8ea; color: var(--gap); }
 .status-untested { background: #eceff1; color: var(--muted); }
+.status-na { background: #f5f5f5; color: #9aa0a6; }
 .requirement { padding: 1rem 0; border-bottom: 1px solid #e8eaed; }
 .req-header { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .req-id { font-family: var(--mono); font-size: 0.75rem; background: var(--navy-light);
@@ -441,6 +550,36 @@ body { font-family: var(--font); color: var(--text); background: var(--bg); line
 .vendor-doc-item { padding: 0.65rem 0; border-bottom: 1px solid #eef1f5; font-size: 0.9rem; }
 .vendor-doc-item:last-child { border-bottom: none; }
 .vendor-doc-notes { display: block; margin-top: 0.35rem; font-size: 0.85rem; color: var(--navy); }
+.mad-vsm-timeline-chart { margin: 1rem 0; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+.mad-vsm-timeline-stats { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
+.mad-vsm-timeline-stat { flex: 1; min-width: 120px; background: white; border-radius: 6px; padding: 0.65rem 0.75rem; border: 1px solid #e2e8f0; }
+.mad-vsm-timeline-stat-primary { border-left: 3px solid var(--cyan); }
+.mad-vsm-timeline-stat-label { display: block; font-size: 0.7rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.03em; }
+.mad-vsm-timeline-stat strong { font-size: 1.05rem; color: var(--navy); }
+.mad-vsm-timeline-track { display: flex; gap: 3px; min-height: 52px; align-items: stretch; margin-bottom: 0.5rem; }
+.mad-vsm-timeline-bar {
+  flex: 1 1 0; min-width: 48px; border: 2px solid transparent; border-radius: 6px; color: white;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem;
+  padding: 0.35rem 0.25rem; font-family: inherit; font-size: 0.75rem; position: relative;
+}
+.mad-vsm-timeline-bar.untimed { background: #eceff1 !important; color: var(--muted); border-style: dashed; }
+.mad-vsm-timeline-bar-type { font-weight: 800; font-size: 0.65rem; opacity: 0.9; }
+.mad-vsm-timeline-bar-label { font-weight: 700; font-family: var(--mono); font-size: 0.72rem; }
+.mad-vsm-timeline-bar-pct { margin-left: 0.25rem; opacity: 0.85; font-size: 0.65rem; }
+.mad-vsm-timeline-ruler { position: relative; height: 1.25rem; margin-bottom: 0.75rem; border-top: 1px solid #dde1e6; }
+.mad-vsm-timeline-ruler-tick { position: absolute; top: 0.2rem; transform: translateX(-50%); font-size: 0.65rem; color: var(--muted); font-family: var(--mono); }
+.mad-vsm-timeline-milestones { margin-top: 0.5rem; }
+.mad-vsm-timeline-milestones-title { display: block; font-size: 0.7rem; text-transform: uppercase; color: var(--muted); margin-bottom: 0.35rem; }
+.mad-vsm-timeline-milestone-lane { position: relative; min-height: 2.5rem; }
+.mad-vsm-timeline-milestone {
+  position: absolute; transform: translateX(-50%); background: white; border: 1px solid #dde1e6;
+  border-radius: 6px; padding: 0.2rem 0.45rem; font-size: 0.7rem; display: flex; align-items: center; gap: 0.3rem;
+  font-family: inherit; color: var(--navy); max-width: 120px;
+}
+.mad-vsm-timeline-milestone-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--milestone-color, var(--cyan)); flex-shrink: 0; }
+.mad-vsm-timeline-milestone-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mad-vsm-timeline-details { margin-top: 1rem; }
+.mad-vsm-timeline-details summary { cursor: pointer; font-weight: 600; color: var(--navy); margin-bottom: 0.5rem; }
 @media print {
   body { background: white; }
   .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }

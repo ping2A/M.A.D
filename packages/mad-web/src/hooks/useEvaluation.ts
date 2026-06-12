@@ -12,6 +12,7 @@ import {
   getPolicy,
   importVendorsJson,
   importWorkspaceJson,
+  loadExampleVendors,
   setAssessment,
   updatePillar,
   updateProcurement,
@@ -161,15 +162,12 @@ export function useEvaluation() {
     name: string,
     map: ValueStreamMap,
   ) => {
-    setSaving(true);
     try {
       const ws = await updateValueStreamEntry(vendorId, streamId, name, map);
       syncValueStreams(ws.value_streams ?? {});
     } catch (err) {
       await refresh();
       throw err;
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -264,6 +262,7 @@ export function useEvaluation() {
         requirements: result.requirements,
         vendors: result.vendors,
         valueStreamMaps: result.value_stream_maps,
+        vendorDocSections: result.vendor_doc_sections,
         vendorVsmImported: result.vendor_result?.value_streams_imported,
         vendorDocsImported:
           result.vendor_result?.vendor_docs_imported ??
@@ -281,6 +280,17 @@ export function useEvaluation() {
     setSaving(true);
     try {
       const { result } = await importVendorsJson(file, mode);
+      await refresh();
+      return result;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLoadExampleVendors = async (): Promise<VendorImportResult> => {
+    setSaving(true);
+    try {
+      const { result } = await loadExampleVendors();
       await refresh();
       return result;
     } finally {
@@ -320,5 +330,6 @@ export function useEvaluation() {
     exportVendors: handleExportVendors,
     importWorkspace: handleImportWorkspace,
     importVendors: handleImportVendors,
+    loadExampleVendors: handleLoadExampleVendors,
   };
 }

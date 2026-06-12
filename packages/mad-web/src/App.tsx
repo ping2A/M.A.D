@@ -17,6 +17,7 @@ import { VendorScorecard } from "./components/VendorScorecard";
 import { useEvaluation } from "./hooks/useEvaluation";
 import { usePolicyContent } from "./hooks/usePolicyContent";
 import { useLocale } from "./i18n/LocaleContext";
+import { buildFilteredEvaluation } from "./utils/comparisonFilter";
 import { rankVendors } from "./utils/ranking";
 
 type Tab =
@@ -63,9 +64,11 @@ export default function App() {
     exportWorkspace,
     exportVendors,
     importWorkspace,
+    loadExampleVendors,
   } = useEvaluation();
 
   const [tab, setTab] = useState<Tab>("matrix");
+  const [activeTags, setActiveTags] = useState<Set<string>>(() => new Set());
 
   const displayPillars = useMemo(
     () => (policy ? localizePillars(policy.pillars) : []),
@@ -77,7 +80,17 @@ export default function App() {
     [evaluation, localizeEvaluation],
   );
 
-  const rankedVendors = displayEvaluation ? rankVendors(displayEvaluation) : [];
+  const allVendorIds = useMemo(
+    () => new Set(displayEvaluation?.vendors.map((v) => v.vendor.id) ?? []),
+    [displayEvaluation],
+  );
+
+  const tagFilteredEvaluation = useMemo(() => {
+    if (!displayEvaluation) return null;
+    return buildFilteredEvaluation(displayEvaluation, allVendorIds, activeTags);
+  }, [displayEvaluation, allVendorIds, activeTags]);
+
+  const rankedVendors = tagFilteredEvaluation ? rankVendors(tagFilteredEvaluation) : [];
 
   const tabItems: [Tab, string][] = [
     ["matrix", t.tabs.matrix],
@@ -113,6 +126,8 @@ export default function App() {
           <>
             <ScoreOverview
               evaluation={displayEvaluation!}
+              activeTags={activeTags}
+              onActiveTagsChange={setActiveTags}
               onSelectVendor={() => setTab("matrix")}
             />
 
@@ -195,6 +210,7 @@ export default function App() {
                 onAdd={addVendor}
                 onUpdate={updateVendor}
                 onDelete={deleteVendor}
+                onLoadExample={loadExampleVendors}
               />
             )}
 
@@ -258,10 +274,11 @@ export default function App() {
               />
             )}
 
-            {tab === "report" && (
+            {tab === "report" && tagFilteredEvaluation && (
               <TechnicalReport
                 policy={{ ...policy, pillars: displayPillars }}
-                evaluation={displayEvaluation!}
+                evaluation={tagFilteredEvaluation}
+                activeTags={activeTags}
               />
             )}
           </>

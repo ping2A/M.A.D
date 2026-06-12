@@ -24,6 +24,7 @@ interface WorkspaceDataPanelProps {
     requirements: number;
     vendors: number;
     valueStreamMaps: number;
+    vendorDocSections: number;
     vendorVsmImported?: number;
     vendorDocsImported?: number;
   }>;
@@ -68,20 +69,32 @@ export function WorkspaceDataPanel({
       if (kind === "full") {
         if (!confirm(t.workspaceData.importFullConfirm)) return;
         const result = await onImportWorkspace(text, "replace");
-        setLastMessage(
-          result.valueStreamMaps > 0
-            ? format(t.workspaceData.importFullSuccessWithVsm, {
-                pillars: result.pillars,
-                requirements: result.requirements,
-                vendors: result.vendors,
-                vsmMaps: result.valueStreamMaps,
-              })
-            : format(t.workspaceData.importFullSuccess, {
-                pillars: result.pillars,
-                requirements: result.requirements,
-                vendors: result.vendors,
-              }),
-        );
+        const base = {
+          pillars: result.pillars,
+          requirements: result.requirements,
+          vendors: result.vendors,
+        };
+        const vsmMaps = result.valueStreamMaps;
+        const docSections = result.vendorDocSections;
+        if (vsmMaps > 0 && docSections > 0) {
+          setLastMessage(
+            format(t.workspaceData.importFullSuccessWithVsmAndDocs, {
+              ...base,
+              vsmMaps,
+              docSections,
+            }),
+          );
+        } else if (vsmMaps > 0) {
+          setLastMessage(
+            format(t.workspaceData.importFullSuccessWithVsm, { ...base, vsmMaps }),
+          );
+        } else if (docSections > 0) {
+          setLastMessage(
+            format(t.workspaceData.importFullSuccessWithDocs, { ...base, docSections }),
+          );
+        } else {
+          setLastMessage(format(t.workspaceData.importFullSuccess, base));
+        }
       } else if (kind === "vendors") {
         const mode = pendingVendorMode.current;
         if (mode === "replace" && !confirm(t.workspaceData.importVendorsReplaceConfirm)) {

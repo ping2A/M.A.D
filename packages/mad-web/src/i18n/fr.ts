@@ -56,7 +56,7 @@ export const fr: Translations = {
   header: {
     title: "MAD",
     logoAlt: "Logo MAD",
-    subtitle: "Évaluation et défense mobile — MDM iOS et Android",
+    subtitle: "Évaluation et défense mobile",
     tagline: "Noter les éditeurs · Comparer les critères · Exporter les rapports",
     language: "Langue",
   },
@@ -91,6 +91,14 @@ export const fr: Translations = {
     gaps: "écarts",
     vendorTitle: "{name} : {score} %{gaps}",
     criticalGaps: "écarts critiques",
+    filterTags: "Filtrer par étiquettes",
+    filterTagsHint:
+      "Affiche les éditeurs correspondant à au moins une étiquette sélectionnée. Le classement et les scores prix sont recalculés sur ce sous-ensemble.",
+    clearTags: "Effacer les étiquettes",
+    noTags:
+      "Aucune étiquette — ajoutez-en sur l'onglet Éditeurs pour filtrer ici.",
+    noVendorsFiltered: "Aucun éditeur ne correspond aux étiquettes sélectionnées.",
+    filterCount: "{count} sur {total} éditeurs",
   },
   workspaceData: {
     title: "Données d'évaluation",
@@ -109,6 +117,10 @@ export const fr: Translations = {
       "Espace chargé : {pillars} groupes de critères, {requirements} exigences, {vendors} éditeurs.",
     importFullSuccessWithVsm:
       "Espace chargé : {pillars} groupes de critères, {requirements} exigences, {vendors} éditeurs, {vsmMaps} cartes de chaîne de valeur.",
+    importFullSuccessWithDocs:
+      "Espace chargé : {pillars} groupes de critères, {requirements} exigences, {vendors} éditeurs, {docSections} sections de documentation.",
+    importFullSuccessWithVsmAndDocs:
+      "Espace chargé : {pillars} groupes de critères, {requirements} exigences, {vendors} éditeurs, {vsmMaps} cartes de chaîne de valeur, {docSections} sections de documentation.",
     importVendorsReplaceConfirm:
       "Remplacer tous les éditeurs et évaluations par le fichier importé ?",
     importVendorsSuccess: "Éditeurs importés — {vendors} éditeurs dans l'espace.",
@@ -178,8 +190,15 @@ export const fr: Translations = {
   vendors: {
     title: "Éditeurs",
     intro:
-      "Ajoutez des éditeurs MDM à comparer. Exportez ou importez listes d'éditeurs et évaluations en JSON pour partager entre espaces de travail.",
+      "Commencez avec une liste vide, ajoutez vos éditeurs MDM, ou chargez l'exemple (Intune, Jamf, Workspace ONE) avec des évaluations préremplies.",
     add: "+ Ajouter un éditeur",
+    loadExample: "Charger les éditeurs d'exemple",
+    loadExampleHint:
+      "Ajoute Microsoft Intune, Jamf Pro et VMware Workspace ONE avec des scores de conformité d'exemple.",
+    loadExampleSuccess: "Éditeurs d'exemple chargés ({added} ajoutés, {updated} mis à jour).",
+    emptyTitle: "Aucun éditeur",
+    emptyHint:
+      "Chargez l'exemple pour explorer MAD, ou ajoutez votre premier éditeur manuellement.",
     new: "Nouvel éditeur",
     edit: "Modifier l'éditeur",
     vendor: "Éditeur",
@@ -269,7 +288,7 @@ export const fr: Translations = {
   matrix: {
     title: "Matrice de notation",
     intro:
-      "Définissez la conformité par éditeur et exigence. Les scores se mettent à jour en direct.",
+      "Définissez la conformité par éditeur et exigence. Un critère compte dans le score d'un éditeur seulement si ses étiquettes recoupent celles de l'éditeur. Les scores se mettent à jour en direct.",
     usageHint: "Cliquez sur l'icône de statut pour faire défiler · ▾ pour choisir · ✎ pour les notes",
     saving: "Enregistrement…",
     criterion: "Exigence",
@@ -294,6 +313,8 @@ export const fr: Translations = {
     showingRequirements: "{count} exigences affichées",
     cellStats: "{total} cellules · {untested} non testées · {gaps} écarts",
     scoredCount: "{scored}/{total} notées",
+    notApplicable: "Non applicable pour cet éditeur (aucune étiquette commune)",
+    notApplicableShort: "N/A",
     noResults: "Aucune exigence ne correspond aux filtres",
     noResultsHint: "Effacez la recherche ou les filtres pour voir la matrice complète.",
     expandRequirement: "Plus de détails",
@@ -543,6 +564,12 @@ export const fr: Translations = {
     downloadPdf: "Télécharger le rapport PDF",
     downloading: "Téléchargement…",
     downloadError: "Échec du téléchargement. mad-server est-il démarré ?",
+    openLiveReport: "Ouvrir le rapport complet",
+    embedPreviewTitle: "Rapport HTML interactif",
+    embedPreviewHint:
+      "Aperçu intégré avec VSM (zoom/pan), filtre fournisseur et sections repliables. Fonctionne hors ligne après téléchargement.",
+    tagsFilterActive:
+      "Rapport limité aux éditeurs avec les étiquettes : {tags} (filtre des scores en direct).",
     purposeTitle: "1. Objectif et périmètre",
     purposeBody:
       "MAD (évaluation et défense mobile) est une plateforme d'évaluation uniquement. Elle détermine si les éditeurs MDM candidats répondent à un standard de sécurité mobile avant achat. Elle n'inscrit pas d'appareils, ne déploie pas de profils ni n'applique la conformité.",
