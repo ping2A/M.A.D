@@ -100,20 +100,64 @@ pub fn flow_type_config<'a>(
 }
 
 pub fn format_duration(minutes: f64, compact: bool) -> String {
+    format_duration_labeled(minutes, compact, EN_DURATION_LABELS)
+}
+
+#[derive(Clone, Copy)]
+pub struct DurationLabels {
+    pub minute: &'static str,
+    pub hour: &'static str,
+    pub day: &'static str,
+    pub week: &'static str,
+    pub sep: &'static str,
+}
+
+const EN_DURATION_LABELS: DurationLabels = DurationLabels {
+    minute: "m",
+    hour: "h",
+    day: "d",
+    week: "w",
+    sep: "",
+};
+
+pub fn duration_labels(s: &ReportStrings) -> DurationLabels {
+    DurationLabels {
+        minute: s.duration_short_minute,
+        hour: s.duration_short_hour,
+        day: s.duration_short_day,
+        week: s.duration_short_week,
+        sep: s.duration_short_sep,
+    }
+}
+
+fn duration_part(value: i64, unit: &str, sep: &str) -> String {
+    if sep.is_empty() {
+        format!("{value}{unit}")
+    } else {
+        format!("{value}{sep}{unit}")
+    }
+}
+
+pub fn format_duration_labeled(minutes: f64, compact: bool, labels: DurationLabels) -> String {
     let total = minutes.round() as i64;
     if total <= 0 {
         return "0".into();
     }
+    let sep = labels.sep;
     if total < MINUTES_PER_HOUR as i64 {
-        return format!("{total}m");
+        return duration_part(total, labels.minute, sep);
     }
     if total < MINUTES_PER_DAY as i64 {
         let hours = total / MINUTES_PER_HOUR as i64;
         let mins = total % MINUTES_PER_HOUR as i64;
         if mins == 0 || compact {
-            return format!("{hours}h");
+            return duration_part(hours, labels.hour, sep);
         }
-        return format!("{hours}h {mins}m");
+        return format!(
+            "{} {}",
+            duration_part(hours, labels.hour, sep),
+            duration_part(mins, labels.minute, sep)
+        );
     }
     if total < MINUTES_PER_WEEK as i64 {
         let days = total / MINUTES_PER_DAY as i64;
@@ -121,38 +165,62 @@ pub fn format_duration(minutes: f64, compact: bool) -> String {
         let hours = rem / MINUTES_PER_HOUR as i64;
         let mins = rem % MINUTES_PER_HOUR as i64;
         if hours == 0 && mins == 0 {
-            return format!("{days}d");
+            return duration_part(days, labels.day, sep);
         }
         if mins == 0 || compact {
             return if hours > 0 {
-                format!("{days}d {hours}h")
+                format!(
+                    "{} {}",
+                    duration_part(days, labels.day, sep),
+                    duration_part(hours, labels.hour, sep)
+                )
             } else {
-                format!("{days}d")
+                duration_part(days, labels.day, sep)
             };
         }
         if hours == 0 {
-            return format!("{days}d {mins}m");
+            return format!(
+                "{} {}",
+                duration_part(days, labels.day, sep),
+                duration_part(mins, labels.minute, sep)
+            );
         }
-        return format!("{days}d {hours}h");
+        return format!(
+            "{} {}",
+            duration_part(days, labels.day, sep),
+            duration_part(hours, labels.hour, sep)
+        );
     }
     let weeks = total / MINUTES_PER_WEEK as i64;
     let rem = total % MINUTES_PER_WEEK as i64;
     let days = rem / MINUTES_PER_DAY as i64;
     let hours = (rem % MINUTES_PER_DAY as i64) / MINUTES_PER_HOUR as i64;
     if days == 0 && hours == 0 {
-        return format!("{weeks}w");
+        return duration_part(weeks, labels.week, sep);
     }
     if hours == 0 || compact {
         return if days > 0 {
-            format!("{weeks}w {days}d")
+            format!(
+                "{} {}",
+                duration_part(weeks, labels.week, sep),
+                duration_part(days, labels.day, sep)
+            )
         } else {
-            format!("{weeks}w")
+            duration_part(weeks, labels.week, sep)
         };
     }
     if days > 0 {
-        format!("{weeks}w {days}d")
+        format!(
+            "{} {}",
+            duration_part(weeks, labels.week, sep),
+            duration_part(days, labels.day, sep)
+        )
     } else {
-        format!("{weeks}w {hours}h")
+        format!(
+            "{} {}",
+            duration_part(weeks, labels.week, sep),
+            duration_part(hours, labels.hour, sep)
+        )
     }
 }
 
@@ -393,6 +461,7 @@ fn render_timeline_chart_html(
         return String::new();
     }
 
+    let dl = duration_labels(s);
     let total = timeline.stats.total_minutes;
     let longest_edge = timeline
         .segments
@@ -414,7 +483,7 @@ fn render_timeline_chart_html(
     out.push_str(&format!(
         "          <strong>{}</strong>\n",
         if total > 0.0 {
-            escape_html(&format_duration(total, false))
+            escape_html(&format_duration_labeled(total, false, dl))
         } else {
             "—".into()
         }
@@ -462,7 +531,7 @@ fn render_timeline_chart_html(
             format!("{} → {}", segment.from_label, segment.to_label)
         };
         let duration_label = if has_duration {
-            format_duration(segment.duration_minutes, true)
+            format_duration_labeled(segment.duration_minutes, true, dl)
         } else {
             "—".into()
         };
@@ -517,7 +586,7 @@ fn render_timeline_chart_html(
             let left = timeline_offset_percent(*tick, total);
             out.push_str(&format!(
                 "        <span class=\"mad-vsm-timeline-ruler-tick\" style=\"left:{left:.2}%\">{}</span>\n",
-                escape_html(&format_duration(*tick, true))
+                escape_html(&format_duration_labeled(*tick, true, dl))
             ));
         }
         out.push_str("      </div>\n");
@@ -580,6 +649,7 @@ pub fn render_vsm_html_section(
     let flow_types = resolve_flow_types(map);
     let timeline = build_timeline(map);
     let s = locale::strings(options.locale);
+    let dl = duration_labels(s);
     let mut out = String::new();
 
     let vendor_attr = options
@@ -611,7 +681,7 @@ pub fn render_vsm_html_section(
     if timeline.stats.total_minutes > 0.0 {
         out.push_str(&format!(
             "      <span><strong>{}</strong> {}</span>\n",
-            escape_html(&format_duration(timeline.stats.total_minutes, false)),
+            escape_html(&format_duration_labeled(timeline.stats.total_minutes, false, dl)),
             s.vsm_total_lead
         ));
         out.push_str(&format!(
@@ -637,14 +707,14 @@ pub fn render_vsm_html_section(
         out.push_str("    </div>\n");
         out.push_str("    <div class=\"mad-vsm-stage\" data-vsm-panel=\"diagram\">\n");
         out.push_str("    <div class=\"vsm-report-diagram\">\n");
-        out.push_str(&render_svg_diagram(map, &flow_types, escape_html, true));
+        out.push_str(&render_svg_diagram(map, &flow_types, escape_html, true, dl));
         out.push_str("    </div>\n");
         out.push_str("    <aside class=\"mad-vsm-inspector mad-hidden\" aria-live=\"polite\"></aside>\n");
         out.push_str("    </div>\n");
         out.push_str(&vsm_map_payload(map, options.locale));
     } else if !map.nodes.is_empty() {
         out.push_str("    <div class=\"vsm-report-diagram\">\n");
-        out.push_str(&render_svg_diagram(map, &flow_types, escape_html, false));
+        out.push_str(&render_svg_diagram(map, &flow_types, escape_html, false, dl));
         out.push_str("    </div>\n");
     }
 
@@ -698,7 +768,7 @@ pub fn render_vsm_html_section(
                 .or(segment.source_author.as_deref())
                 .unwrap_or("—");
             let duration = if segment.duration_minutes > 0.0 {
-                format_duration(segment.duration_minutes, false)
+                format_duration_labeled(segment.duration_minutes, false, dl)
             } else {
                 "—".into()
             };
@@ -743,12 +813,12 @@ pub fn render_vsm_html_section(
             let lead = node
                 .lead_time_minutes
                 .filter(|v| *v > 0.0)
-                .map(|v| format_duration(v, true))
+                .map(|v| format_duration_labeled(v, true, dl))
                 .unwrap_or_else(|| "—".into());
             let cycle = node
                 .cycle_time_minutes
                 .filter(|v| *v > 0.0)
-                .map(|v| format_duration(v, true))
+                .map(|v| format_duration_labeled(v, true, dl))
                 .unwrap_or_else(|| "—".into());
             out.push_str(&format!(
                 "        <tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -889,6 +959,7 @@ fn render_svg_diagram(
     flow_types: &[ResolvedFlowType],
     escape_html: fn(&str) -> String,
     interactive: bool,
+    dl: DurationLabels,
 ) -> String {
     if map.nodes.is_empty() {
         return String::new();
@@ -967,7 +1038,7 @@ fn render_svg_diagram(
             let my = (y1 + y2) / 2.0 + 10.0;
             svg.push_str(&format!(
                 "  <text x=\"{mx:.1}\" y=\"{my:.1}\" class=\"vsm-edge-duration\" text-anchor=\"middle\">{}</text>\n",
-                escape_html(&format_duration(mins, true))
+                escape_html(&format_duration_labeled(mins, true, dl))
             ));
         }
         if interactive {
@@ -1076,6 +1147,14 @@ mod tests {
         assert_eq!(format_duration(10_080.0, false), "1w");
         assert_eq!(format_duration(11_520.0, false), "1w 1d");
         assert_eq!(format_duration(90.0, false), "1h 30m");
+    }
+
+    #[test]
+    fn format_duration_french() {
+        let fr = duration_labels(locale::strings(ReportLocale::Fr));
+        assert_eq!(format_duration_labeled(1_440.0, true, fr), "1 j");
+        assert_eq!(format_duration_labeled(10_080.0, true, fr), "1 sem");
+        assert_eq!(format_duration_labeled(90.0, false, fr), "1 h 30 min");
     }
 
     #[test]

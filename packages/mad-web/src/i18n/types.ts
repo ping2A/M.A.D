@@ -80,6 +80,7 @@ export interface Translations {
     clearTags: string;
     noTags: string;
     noVendorsFiltered: string;
+    noCriteriaFiltered: string;
     filterCount: string;
   };
   workspaceData: {
@@ -237,6 +238,9 @@ export interface Translations {
     placeholderTitle: string;
     placeholderDescription: string;
     placeholderPlatforms: string;
+    tags: string;
+    placeholderTags: string;
+    tagsHint: string;
     evaluationMethod: string;
     technicalCriteria: string;
     placeholderEvaluation: string;
@@ -358,6 +362,13 @@ export interface Translations {
     durationUnitHours: string;
     durationUnitDays: string;
     durationUnitWeeks: string;
+    durationShortMinute: string;
+    durationShortHour: string;
+    durationShortDay: string;
+    durationShortWeek: string;
+    durationShortSep: string;
+    leadTimeAbbr: string;
+    cycleTimeAbbr: string;
     edgeLabel: string;
     edgeLabelPlaceholder: string;
     edgeDuration: string;

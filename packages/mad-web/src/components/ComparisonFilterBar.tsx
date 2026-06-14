@@ -1,10 +1,15 @@
 import { useMemo, useState } from "react";
-import type { EvaluationReport } from "../types";
+import type { EvaluationReport, Pillar } from "../types";
 import { useLocale } from "../i18n/LocaleContext";
-import { collectVendorTags } from "../utils/comparisonFilter";
+import {
+  collectFilterTags,
+  requirementTagsFromPillars,
+  vendorInTagFilterScope,
+} from "../utils/comparisonFilter";
 
 interface ComparisonFilterBarProps {
   evaluation: EvaluationReport;
+  pillars: Pillar[];
   selectedVendorIds: Set<string>;
   activeTags: Set<string>;
   onSelectedVendorIdsChange: (ids: Set<string>) => void;
@@ -13,6 +18,7 @@ interface ComparisonFilterBarProps {
 
 export function ComparisonFilterBar({
   evaluation,
+  pillars,
   selectedVendorIds,
   activeTags,
   onSelectedVendorIdsChange,
@@ -21,7 +27,10 @@ export function ComparisonFilterBar({
   const { t, format } = useLocale();
   const allVendors = evaluation.vendors;
   const allIds = useMemo(() => allVendors.map((v) => v.vendor.id), [allVendors]);
-  const knownTags = useMemo(() => collectVendorTags(evaluation), [evaluation]);
+  const knownTags = useMemo(
+    () => collectFilterTags(evaluation, pillars),
+    [evaluation, pillars],
+  );
   const [expanded, setExpanded] = useState(true);
 
   const selectAll = () => onSelectedVendorIdsChange(new Set(allIds));
@@ -42,10 +51,12 @@ export function ComparisonFilterBar({
     onActiveTagsChange(next);
   };
 
+  const reqTags = useMemo(() => requirementTagsFromPillars(pillars), [pillars]);
+
   const visibleCount = allVendors.filter(
     (v) =>
-      selectedVendorIds.has(v.vendor.id) &&
-      (activeTags.size === 0 || (v.vendor.tags ?? []).some((t) => activeTags.has(t))),
+      selectedVendorIds.has(v.vendor.id)
+      && vendorInTagFilterScope(v, activeTags, reqTags),
   ).length;
 
   return (

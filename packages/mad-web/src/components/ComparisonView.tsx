@@ -10,7 +10,7 @@ import type {
 } from "../types";
 import { useLocale } from "../i18n/LocaleContext";
 import { formatMoney } from "../utils/pricing";
-import { buildFilteredEvaluation } from "../utils/comparisonFilter";
+import { buildFilteredEvaluation, criterionInTagFilterScope, requirementTagsFromPillars } from "../utils/comparisonFilter";
 import { rankScore, rankVendors, usesCompositeRanking } from "../utils/ranking";
 
 interface ComparisonViewProps {
@@ -605,8 +605,8 @@ export function ComparisonView({ evaluation, pillars }: ComparisonViewProps) {
   }, [allVendorIds]);
 
   const filteredEvaluation = useMemo(
-    () => buildFilteredEvaluation(evaluation, selectedVendorIds, activeTags),
-    [evaluation, selectedVendorIds, activeTags],
+    () => buildFilteredEvaluation(evaluation, selectedVendorIds, activeTags, pillars),
+    [evaluation, selectedVendorIds, activeTags, pillars],
   );
   const ranked = useMemo(() => rankVendors(filteredEvaluation), [filteredEvaluation]);
   const compositeMode = usesCompositeRanking(filteredEvaluation);
@@ -627,9 +627,14 @@ export function ComparisonView({ evaluation, pillars }: ComparisonViewProps) {
     [pillarDisplayName],
   );
 
+  const reqTags = useMemo(() => requirementTagsFromPillars(pillars), [pillars]);
+
   const heatmapReqs = useMemo(
-    () => pillars.flatMap((p) => p.requirements.map((r) => ({ ...r, pillarId: p.id }))),
-    [pillars],
+    () =>
+      pillars
+        .flatMap((p) => p.requirements.map((r) => ({ ...r, pillarId: p.id })))
+        .filter((r) => criterionInTagFilterScope(r.tags, activeTags, reqTags)),
+    [pillars, activeTags, reqTags],
   );
 
   const viewButtons: { id: CompareView; label: string }[] = [
@@ -648,6 +653,7 @@ export function ComparisonView({ evaluation, pillars }: ComparisonViewProps) {
 
       <ComparisonFilterBar
         evaluation={evaluation}
+        pillars={pillars}
         selectedVendorIds={selectedVendorIds}
         activeTags={activeTags}
         onSelectedVendorIdsChange={setSelectedVendorIds}

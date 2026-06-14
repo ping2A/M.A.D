@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useFormatDuration } from "../../i18n/useFormatDuration";
 import { useLocale } from "../../i18n/LocaleContext";
 import {
   abbreviateTimelineLabel,
@@ -8,7 +9,6 @@ import {
   computeTimelineChartLayout,
   edgeTypeShort,
   flowTypeConfig,
-  formatDuration,
   NODE_PALETTE,
   type VsmTimelineSegment,
 } from "../../utils/valueStream";
@@ -41,6 +41,7 @@ export function VsmTimeline({
   onSelectNode,
 }: VsmTimelineProps) {
   const { t } = useLocale();
+  const formatDuration = useFormatDuration();
   const flowTypes = useVsmFlowTypes();
   const viewportRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);

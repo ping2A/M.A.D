@@ -246,10 +246,13 @@ fn compute_overall_score(
         .map(|p| p.score.clone())
         .collect();
 
-    let overall_score_percent = if pillar_scores.is_empty() {
+    let scoring_pillars: Vec<&PillarScore> =
+        pillar_scores.iter().filter(|s| s.total > 0).collect();
+    let overall_score_percent = if scoring_pillars.is_empty() {
         0.0
     } else {
-        pillar_scores.iter().map(|s| s.score_percent).sum::<f64>() / pillar_scores.len() as f64
+        scoring_pillars.iter().map(|s| s.score_percent).sum::<f64>()
+            / scoring_pillars.len() as f64
     };
 
     let critical_gaps: Vec<String> = pillar_evaluations
@@ -304,6 +307,60 @@ pub fn requirement_applies_to_vendor(req_tags: &[String], vendor_tags: &[String]
     req.iter().any(|t| vendor.contains(t))
 }
 
+/// When a tag filter is active, only tagged requirements sharing a filter tag are in scope.
+pub fn requirement_matches_tags(req_tags: &[String], filter_tags: &[String]) -> bool {
+    if filter_tags.is_empty() {
+        return true;
+    }
+    let req: HashSet<String> = req_tags
+        .iter()
+        .map(|t| normalize_tag(t))
+        .filter(|t| !t.is_empty())
+        .collect();
+    if req.is_empty() {
+        return false;
+    }
+    let active: HashSet<String> = filter_tags.iter().map(|t| normalize_tag(t)).collect();
+    req.iter().any(|t| active.contains(t))
+}
+
+pub fn requirement_tags_from_bundle(bundle: &PolicyBundle) -> HashMap<String, Vec<String>> {
+    let mut map = HashMap::new();
+    for pillar in &bundle.pillars {
+        for req in &pillar.requirements {
+            map.insert(req.id.clone(), req.tags.clone());
+        }
+    }
+    map
+}
+
+fn recompute_vendor_for_tag_filter(
+    result: &mut EvaluationResult,
+    filter_tags: &[String],
+    req_tags: &HashMap<String, Vec<String>>,
+    scoring: &ScoringConfig,
+) {
+    let vendor_tags = &result.vendor.tags;
+    for pillar in &mut result.pillars {
+        for req in &mut pillar.requirements {
+            let tags = req_tags
+                .get(&req.requirement_id)
+                .map(|t| t.as_slice())
+                .unwrap_or(&[]);
+            req.applicable = requirement_applies_to_vendor(tags, vendor_tags)
+                && requirement_matches_tags(tags, filter_tags);
+        }
+        let scored: Vec<RequirementResult> = pillar
+            .requirements
+            .iter()
+            .filter(|r| r.applicable)
+            .cloned()
+            .collect();
+        pillar.score = score_pillar(&pillar.pillar_id, &scored, scoring);
+    }
+    result.overall_score = compute_overall_score(result.vendor.clone(), &result.pillars);
+}
+
 /// Parses a comma-separated tag list from a query string (`shortlist,ios`).
 pub fn parse_vendor_tags_query(raw: &str) -> Vec<String> {
     let mut seen = HashSet::new();
@@ -318,25 +375,52 @@ pub fn parse_vendor_tags_query(raw: &str) -> Vec<String> {
     tags
 }
 
+pub fn vendor_matches_criteria_tag_filter(
+    vendor: &Vendor,
+    filter_tags: &[String],
+    req_tags: &HashMap<String, Vec<String>>,
+) -> bool {
+    if filter_tags.is_empty() {
+        return true;
+    }
+    for tags in req_tags.values() {
+        if !requirement_matches_tags(tags, filter_tags) {
+            continue;
+        }
+        if requirement_applies_to_vendor(tags, &vendor.tags) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn vendor_matches_tags(vendor: &Vendor, tags: &[String]) -> bool {
     if tags.is_empty() {
         return true;
     }
-    let active: HashSet<&str> = tags.iter().map(String::as_str).collect();
+    let active: HashSet<String> = tags.iter().map(|t| normalize_tag(t)).collect();
     vendor.tags.iter().any(|t| {
-        let normalized = t.trim().to_lowercase();
-        active.contains(normalized.as_str())
+        let normalized = normalize_tag(t);
+        !normalized.is_empty() && active.contains(&normalized)
     })
 }
 
-/// Keeps vendors matching any active tag and recomputes price/composite scores for the subset.
-pub fn filter_evaluation_by_tags(mut report: EvaluationReport, tags: &[String]) -> EvaluationReport {
+/// Keeps vendors matching any active tag, scopes criteria to matching tags, and recomputes scores.
+pub fn filter_evaluation_by_tags(
+    mut report: EvaluationReport,
+    tags: &[String],
+    req_tags: &HashMap<String, Vec<String>>,
+) -> EvaluationReport {
     if tags.is_empty() {
         return report;
     }
-    report
-        .vendors
-        .retain(|result| vendor_matches_tags(&result.vendor, tags));
+    report.vendors.retain(|result| {
+        vendor_matches_criteria_tag_filter(&result.vendor, tags, req_tags)
+    });
+    let scoring = report.scoring.clone();
+    for result in &mut report.vendors {
+        recompute_vendor_for_tag_filter(result, tags, req_tags, &scoring);
+    }
     apply_price_ranking(&mut report.vendors, &report.procurement);
     report
 }
@@ -657,6 +741,57 @@ mod tests {
     }
 
     #[test]
+    fn overall_score_averages_only_pillars_with_applicable_requirements() {
+        use crate::pillar::RequirementSeverity;
+        use crate::vendor::VendorId;
+
+        let vendor = Vendor {
+            id: VendorId::new("apt-only"),
+            name: "APT Vendor".into(),
+            description: String::new(),
+            website: None,
+            pricing: None,
+            tags: vec!["apt".into()],
+        };
+
+        let applicable_req = RequirementResult {
+            requirement_id: "dfir-005".into(),
+            title: "APT criterion".into(),
+            severity: RequirementSeverity::Critical,
+            status: ComplianceStatus::Compliant,
+            notes: None,
+            applicable: true,
+        };
+        let na_req = RequirementResult {
+            requirement_id: "plat-002".into(),
+            title: "Android only".into(),
+            severity: RequirementSeverity::Critical,
+            status: ComplianceStatus::Untested,
+            notes: None,
+            applicable: false,
+        };
+
+        let dfir_pillar = PillarEvaluation {
+            pillar_id: "dfir".into(),
+            pillar_name: "DFIR".into(),
+            requirements: vec![applicable_req.clone()],
+            score: score_pillar("dfir", &[applicable_req], &ScoringConfig::default()),
+        };
+        let platform_pillar = PillarEvaluation {
+            pillar_id: "platform_os".into(),
+            pillar_name: "Platform".into(),
+            requirements: vec![na_req],
+            score: score_pillar("platform_os", &[], &ScoringConfig::default()),
+        };
+
+        let overall = compute_overall_score(
+            vendor,
+            &[dfir_pillar, platform_pillar],
+        );
+        assert_eq!(overall.overall_score_percent, 100.0);
+    }
+
+    #[test]
     fn scores_exclude_non_applicable_requirements() {
         use crate::vendor::VendorId;
 
@@ -708,13 +843,78 @@ mod tests {
             return;
         }
         let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let req_tags = requirement_tags_from_bundle(&bundle);
         let mut evaluator = Evaluator::new(bundle);
         for (vendor, assessment) in sample_vendors() {
             evaluator.add_vendor(vendor, assessment);
         }
         let mut report = evaluator.evaluate().expect("report");
-        report.vendors[0].vendor.tags = vec!["shortlist".into()];
-        let filtered = filter_evaluation_by_tags(report, &["shortlist".into()]);
-        assert_eq!(filtered.vendors.len(), 1);
+        let filtered = filter_evaluation_by_tags(report, &["containerization".into()], &req_tags);
+        assert!(!filtered.vendors.is_empty());
+        assert!(
+            filtered
+                .vendors
+                .iter()
+                .any(|v| v.vendor.id.0 == "intune")
+        );
+    }
+
+    #[test]
+    fn filter_evaluation_by_tags_scopes_criteria() {
+        let dir = std::path::Path::new("policies");
+        if !dir.exists() {
+            return;
+        }
+        let bundle = PolicyBundle::load_dir(dir).expect("policy");
+        let req_tags = requirement_tags_from_bundle(&bundle);
+        let mut evaluator = Evaluator::new(bundle);
+        for (vendor, assessment) in sample_vendors() {
+            evaluator.add_vendor(vendor, assessment);
+        }
+        let report = evaluator.evaluate().expect("report");
+        let jamf = report
+            .vendors
+            .iter()
+            .find(|v| v.vendor.id.0 == "jamf")
+            .expect("jamf");
+        let android = jamf
+            .pillars
+            .iter()
+            .flat_map(|p| &p.requirements)
+            .find(|r| r.requirement_id == "plat-002")
+            .expect("android req");
+        assert!(!android.applicable);
+
+        let filtered = filter_evaluation_by_tags(report, &["apple".into()], &req_tags);
+        let jamf_filtered = filtered
+            .vendors
+            .iter()
+            .find(|v| v.vendor.id.0 == "jamf")
+            .expect("jamf filtered");
+        let abm = jamf_filtered
+            .pillars
+            .iter()
+            .flat_map(|p| &p.requirements)
+            .find(|r| r.requirement_id == "plat-001")
+            .expect("abm");
+        assert!(abm.applicable);
+        let android_filtered = jamf_filtered
+            .pillars
+            .iter()
+            .flat_map(|p| &p.requirements)
+            .find(|r| r.requirement_id == "plat-002")
+            .expect("android");
+        assert!(!android_filtered.applicable);
+    }
+
+    #[test]
+    fn requirement_matches_tags_filter() {
+        assert!(requirement_matches_tags(&["apple".into()], &["apple".into()]));
+        assert!(!requirement_matches_tags(
+            &["android".into()],
+            &["apple".into()]
+        ));
+        assert!(!requirement_matches_tags(&[], &["apple".into()]));
+        assert!(requirement_matches_tags(&["ios".into()], &[]));
     }
 }

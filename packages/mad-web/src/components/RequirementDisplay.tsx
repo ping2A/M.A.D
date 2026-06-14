@@ -7,6 +7,7 @@ export interface RequirementDisplayProps {
   description?: string;
   severity: RequirementSeverity;
   platforms?: string[];
+  tags?: string[];
   pillarName?: string;
   severityLabel: (s: RequirementSeverity) => string;
   variant?: "matrix" | "table";
@@ -22,6 +23,7 @@ export function RequirementDisplay({
   description,
   severity,
   platforms = [],
+  tags = [],
   pillarName,
   severityLabel,
   variant = "matrix",
@@ -68,6 +70,15 @@ export function RequirementDisplay({
             {platforms.map((p) => (
               <span key={p} className="requirement-platform-tag">
                 {p}
+              </span>
+            ))}
+          </div>
+        )}
+        {tags.length > 0 && (
+          <div className="requirement-tags">
+            {tags.map((tag) => (
+              <span key={tag} className="requirement-tag-chip">
+                {tag}
               </span>
             ))}
           </div>

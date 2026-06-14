@@ -1,6 +1,8 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { memo } from "react";
-import { formatDuration, NODE_PALETTE, type VsmNodeData } from "../../utils/valueStream";
+import { useFormatDuration } from "../../i18n/useFormatDuration";
+import { useLocale } from "../../i18n/LocaleContext";
+import { NODE_PALETTE, type VsmNodeData } from "../../utils/valueStream";
 
 type VsmFlowNode = Node<VsmNodeData>;
 type VsmNodeProps = NodeProps<VsmFlowNode>;
@@ -15,13 +17,15 @@ function AuthorBadge({ author }: { author?: string }) {
 }
 
 function MetricsStrip({ data }: { data: VsmNodeData }) {
+  const { t } = useLocale();
+  const formatDuration = useFormatDuration();
   const lt = formatDuration(data.leadTimeMinutes, "compact");
   const ct = formatDuration(data.cycleTimeMinutes, "compact");
   if (!lt && !ct) return null;
   return (
     <div className="vsm-node-metrics">
-      {lt && <span>LT {lt}</span>}
-      {ct && <span>CT {ct}</span>}
+      {lt && <span>{t.vsm.leadTimeAbbr} {lt}</span>}
+      {ct && <span>{t.vsm.cycleTimeAbbr} {ct}</span>}
     </div>
   );
 }

@@ -5,7 +5,8 @@ import {
   type EdgeProps,
 } from "@xyflow/react";
 import { memo } from "react";
-import { flowTypeConfig, formatDuration, type VsmEdgeData } from "../../utils/valueStream";
+import { useFormatDuration } from "../../i18n/useFormatDuration";
+import { flowTypeConfig, type VsmEdgeData } from "../../utils/valueStream";
 import { useVsmFlowTypes } from "./VsmFlowTypesContext";
 
 export const VsmEdge = memo(
@@ -23,6 +24,7 @@ export const VsmEdge = memo(
     markerEnd,
   }: EdgeProps) => {
     const flowTypes = useVsmFlowTypes();
+    const formatDuration = useFormatDuration();
     const edgeData = data as VsmEdgeData | undefined;
     const edgeType = edgeData?.edgeType ?? "material";
     const cfg = flowTypeConfig(edgeType, flowTypes);

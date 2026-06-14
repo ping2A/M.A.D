@@ -10,12 +10,17 @@ import type {
   PillarId,
   RequirementSeverity,
 } from "../types";
-import { requirementAppliesToVendor } from "../utils/comparisonFilter";
+import {
+  criterionInTagFilterScope,
+  requirementAppliesToVendor,
+  requirementTagsFromPillars,
+} from "../utils/comparisonFilter";
 import { scoreColor } from "../utils/scoring";
 
 interface ScoreMatrixProps {
   pillars: Pillar[];
   evaluation: EvaluationReport;
+  activeTags: Set<string>;
   onSetStatus: (
     vendorId: string,
     requirementId: string,
@@ -68,6 +73,7 @@ function getAssessment(
 export function ScoreMatrix({
   pillars,
   evaluation,
+  activeTags,
   onSetStatus,
   onCycle,
   saving,
@@ -101,10 +107,14 @@ export function ScoreMatrix({
     [pillars],
   );
 
+  const reqTags = useMemo(() => requirementTagsFromPillars(pillars), [pillars]);
+
   const isApplicable = (vendorId: string, req: FlatRequirement) => {
-    const fromEval = getAssessment(evaluation, vendorId, req.id);
-    if (!fromEval.applicable) return false;
     const vendor = vendors.find((v) => v.id === vendorId);
+    const assessment = getAssessment(evaluation, vendorId, req.id);
+    if (activeTags.size > 0) {
+      return assessment.applicable;
+    }
     return requirementAppliesToVendor(req.tags, vendor?.tags);
   };
 
@@ -128,6 +138,13 @@ export function ScoreMatrix({
         (r) =>
           r.id.toLowerCase().includes(q) ||
           r.title.toLowerCase().includes(q),
+      );
+    }
+    if (activeTags.size > 0) {
+      reqs = reqs.filter(
+        (r) =>
+          criterionInTagFilterScope(r.tags, activeTags, reqTags)
+          && vendors.some((v) => requirementAppliesToVendor(r.tags, v.tags)),
       );
     }
     if (quickFilter === "untested") {
@@ -155,6 +172,8 @@ export function ScoreMatrix({
     quickFilter,
     vendors,
     evaluation,
+    activeTags,
+    reqTags,
   ]);
 
   const groupedRequirements = useMemo(() => {
@@ -235,7 +254,11 @@ export function ScoreMatrix({
       <section className="score-matrix">
         <h2 className="section-title">{t.matrix.title}</h2>
         <div className="empty-state card">
-          <p className="empty-state-title">{format(t.matrix.empty, { tab: t.tabs.vendors })}</p>
+          <p className="empty-state-title">
+            {activeTags.size > 0
+              ? t.scoreOverview.noVendorsFiltered
+              : format(t.matrix.empty, { tab: t.tabs.vendors })}
+          </p>
         </div>
       </section>
     );
@@ -363,7 +386,11 @@ export function ScoreMatrix({
 
       {requirements.length === 0 ? (
         <div className="empty-state card">
-          <p className="empty-state-title">{t.matrix.noResults}</p>
+          <p className="empty-state-title">
+            {activeTags.size > 0 && !hasActiveFilters
+              ? t.scoreOverview.noCriteriaFiltered
+              : t.matrix.noResults}
+          </p>
           <p className="empty-state-hint">{t.matrix.noResultsHint}</p>
         </div>
       ) : (

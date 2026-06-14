@@ -87,8 +87,8 @@ export default function App() {
 
   const tagFilteredEvaluation = useMemo(() => {
     if (!displayEvaluation) return null;
-    return buildFilteredEvaluation(displayEvaluation, allVendorIds, activeTags);
-  }, [displayEvaluation, allVendorIds, activeTags]);
+    return buildFilteredEvaluation(displayEvaluation, allVendorIds, activeTags, displayPillars);
+  }, [displayEvaluation, allVendorIds, activeTags, displayPillars]);
 
   const rankedVendors = tagFilteredEvaluation ? rankVendors(tagFilteredEvaluation) : [];
 
@@ -126,6 +126,7 @@ export default function App() {
           <>
             <ScoreOverview
               evaluation={displayEvaluation!}
+              pillars={displayPillars}
               activeTags={activeTags}
               onActiveTagsChange={setActiveTags}
               onSelectVendor={() => setTab("matrix")}
@@ -226,10 +227,11 @@ export default function App() {
               />
             )}
 
-            {tab === "matrix" && (
+            {tab === "matrix" && tagFilteredEvaluation && (
               <ScoreMatrix
                 pillars={displayPillars}
-                evaluation={displayEvaluation!}
+                evaluation={tagFilteredEvaluation}
+                activeTags={activeTags}
                 onSetStatus={setAssessment}
                 onCycle={cycleAssessment}
                 saving={saving}

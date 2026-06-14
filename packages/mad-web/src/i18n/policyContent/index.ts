@@ -8,7 +8,7 @@ import type {
 } from "../../types";
 import { BUILTIN_PILLAR_IDS } from "../../types";
 import { policyContentFr } from "./fr";
-import type { PolicyContentCatalog, RequirementTranslation } from "./types";
+import type { PolicyContentCatalog } from "./types";
 
 const catalogs: Partial<Record<Locale, PolicyContentCatalog>> = {
   fr: policyContentFr,
@@ -26,49 +26,19 @@ export function translateRequirementFields(
     evaluation_method?: string | null;
     technical_criteria?: string | null;
   },
-  locale: Locale,
+  _locale: Locale,
 ): typeof fields {
-  const catalog = getPolicyContentCatalog(locale);
-  const tr: RequirementTranslation | undefined = catalog?.requirements[id];
-  if (!tr) return fields;
-  return {
-    title: tr.title,
-    description: tr.description ?? fields.description,
-    evaluation_method: tr.evaluation_method ?? fields.evaluation_method ?? undefined,
-    technical_criteria: tr.technical_criteria ?? fields.technical_criteria ?? undefined,
-  };
+  void id;
+  return fields;
 }
 
-export function localizeRequirement(req: Requirement, locale: Locale): Requirement {
-  const tr = translateRequirementFields(
-    req.id,
-    {
-      title: req.title,
-      description: req.description,
-      evaluation_method: req.evaluation_method,
-      technical_criteria: req.technical_criteria,
-    },
-    locale,
-  );
-  return {
-    ...req,
-    title: tr.title,
-    description: tr.description ?? req.description,
-    evaluation_method: tr.evaluation_method ?? req.evaluation_method,
-    technical_criteria: tr.technical_criteria ?? req.technical_criteria,
-  };
+/** Criteria text is user-authored — never substitute catalog translations. */
+export function localizeRequirement(req: Requirement, _locale: Locale): Requirement {
+  return req;
 }
 
-export function localizeRequirementResult(
-  req: RequirementResult,
-  locale: Locale,
-): RequirementResult {
-  const tr = translateRequirementFields(
-    req.requirement_id,
-    { title: req.title },
-    locale,
-  );
-  return { ...req, title: tr.title };
+export function localizeRequirementResult(req: RequirementResult, _locale: Locale): RequirementResult {
+  return req;
 }
 
 function builtinPillarTranslation(
@@ -88,7 +58,7 @@ export function localizePillar(pillar: Pillar, locale: Locale): Pillar {
     ...pillar,
     name: pillarTr?.name ?? pillar.name,
     description: pillarTr?.description ?? pillar.description,
-    requirements: pillar.requirements.map((r) => localizeRequirement(r, locale)),
+    requirements: pillar.requirements,
   };
 }
 

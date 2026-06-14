@@ -14,7 +14,8 @@ use axum::{
 };
 use mad_core::{
     default_html_options, default_pdf_options, filter_evaluation_by_tags, filter_vendor_map,
-    parse_vendor_tags_query, render_html, render_pdf, Evaluator, ReportLocale,
+    parse_vendor_tags_query, render_html, render_pdf, requirement_tags_from_bundle, Evaluator,
+    ReportLocale,
     parse_workspace_import, EvaluationWorkspace, Pillar, PolicyBundle, ProcurementConfig,
     Requirement, ScoringConfig, ValueStreamEntry, ValueStreamMap, Vendor, VendorImportMode,
     VendorDocSection, VendorImportResult,
@@ -789,6 +790,7 @@ fn report_tag_filter(
     value_streams: std::collections::HashMap<String, Vec<ValueStreamEntry>>,
     vendor_docs: std::collections::HashMap<String, Vec<VendorDocSection>>,
     tags: Option<&str>,
+    req_tags: &HashMap<String, Vec<String>>,
 ) -> (
     mad_core::EvaluationReport,
     std::collections::HashMap<String, Vec<ValueStreamEntry>>,
@@ -798,7 +800,7 @@ fn report_tag_filter(
     let active_tags = tags
         .map(parse_vendor_tags_query)
         .unwrap_or_default();
-    let evaluation = filter_evaluation_by_tags(evaluation, &active_tags);
+    let evaluation = filter_evaluation_by_tags(evaluation, &active_tags, req_tags);
     let value_streams = filter_vendor_map(&value_streams, &evaluation.vendors);
     let vendor_docs = filter_vendor_map(&vendor_docs, &evaluation.vendors);
     (evaluation, value_streams, vendor_docs, active_tags)
@@ -811,11 +813,13 @@ async fn report_html(
     let workspace = state.workspace.get().await;
     let evaluation = evaluate_from_state(&state).await?;
     let bundle = workspace.to_policy_bundle();
+    let req_tags = requirement_tags_from_bundle(&bundle);
     let (evaluation, value_streams, vendor_docs, active_tags) = report_tag_filter(
         evaluation,
         workspace.value_streams.clone(),
         workspace.vendor_docs.clone(),
         query.tags.as_deref(),
+        &req_tags,
     );
 
     let logo_path = if state.logo_path.exists() {
@@ -859,11 +863,13 @@ async fn report_pdf(
     let workspace = state.workspace.get().await;
     let evaluation = evaluate_from_state(&state).await?;
     let bundle = workspace.to_policy_bundle();
+    let req_tags = requirement_tags_from_bundle(&bundle);
     let (evaluation, value_streams, vendor_docs, _active_tags) = report_tag_filter(
         evaluation,
         workspace.value_streams.clone(),
         workspace.vendor_docs.clone(),
         query.tags.as_deref(),
+        &req_tags,
     );
     let logo_path = if state.logo_path.exists() {
         Some(state.logo_path.as_path())

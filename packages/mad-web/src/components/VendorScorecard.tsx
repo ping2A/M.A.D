@@ -34,16 +34,25 @@ export function VendorScorecard({ result, rank, detailed }: VendorScorecardProps
           {pillars.map((p) => (
             <div key={p.pillar_id} className="pillar-bar-row">
               <span className="pillar-bar-label">{p.pillar_name}</span>
-              <div className="pillar-bar-track">
-                <div
-                  className="pillar-bar-fill"
-                  style={{
-                    width: `${p.score.score_percent}%`,
-                    background: scoreColor(p.score.score_percent),
-                  }}
-                />
-              </div>
-              <span className="pillar-bar-value">{p.score.score_percent.toFixed(0)}%</span>
+              {p.score.total > 0 ? (
+                <>
+                  <div className="pillar-bar-track">
+                    <div
+                      className="pillar-bar-fill"
+                      style={{
+                        width: `${p.score.score_percent}%`,
+                        background: scoreColor(p.score.score_percent),
+                      }}
+                    />
+                  </div>
+                  <span className="pillar-bar-value">{p.score.score_percent.toFixed(0)}%</span>
+                </>
+              ) : (
+                <>
+                  <div className="pillar-bar-track pillar-bar-na" />
+                  <span className="pillar-bar-value pillar-bar-na">{t.matrix.notApplicable}</span>
+                </>
+              )}
             </div>
           ))}
         </div>

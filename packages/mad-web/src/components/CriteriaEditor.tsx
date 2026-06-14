@@ -4,6 +4,7 @@ import { useLocale } from "../i18n/LocaleContext";
 import type { Pillar, PillarId, Requirement, RequirementSeverity } from "../types";
 import { RequirementDisplay } from "./RequirementDisplay";
 import { suggestNextRequirementId } from "../utils/suggestRequirementId";
+import { formatTagsInput, parseTagsInput } from "../utils/comparisonFilter";
 
 interface CriteriaEditorProps {
   pillars: Pillar[];
@@ -28,6 +29,7 @@ const emptyForm = (pillars: Pillar[], preferredPillar?: PillarId | "all") => {
     description: "",
     severity: "high" as RequirementSeverity,
     platforms: "ios, android",
+    tagsInput: "",
     evaluationMethod: "",
     technicalCriteria: "",
   };
@@ -98,6 +100,7 @@ export function CriteriaEditor({
       description: canonical.description,
       severity: canonical.severity,
       platforms: canonical.platforms.join(", "),
+      tagsInput: formatTagsInput(canonical.tags),
       evaluationMethod: canonical.evaluation_method ?? "",
       technicalCriteria: canonical.technical_criteria ?? "",
     });
@@ -115,7 +118,7 @@ export function CriteriaEditor({
         description: form.description.trim(),
         severity: form.severity,
         platforms: form.platforms.split(",").map((s) => s.trim()).filter(Boolean),
-        tags: [],
+        tags: parseTagsInput(form.tagsInput),
         evaluation_method: form.evaluationMethod.trim() || undefined,
         technical_criteria: form.technicalCriteria.trim() || undefined,
       };
@@ -269,6 +272,15 @@ export function CriteriaEditor({
                 placeholder={t.criteria.placeholderPlatforms}
               />
             </label>
+            <label>
+              {t.criteria.tags}
+              <input
+                value={form.tagsInput}
+                onChange={(e) => setField("tagsInput", e.target.value)}
+                placeholder={t.criteria.placeholderTags}
+              />
+              <span className="field-hint">{t.criteria.tagsHint}</span>
+            </label>
           </div>
           <details className="form-advanced">
             <summary>{t.criteria.advancedFields}</summary>
@@ -330,15 +342,16 @@ export function CriteriaEditor({
               {filtered.map((req) => (
                 <tr key={req.id}>
                   <td className="requirement-table-cell">
-                    <RequirementDisplay
-                      id={req.id}
-                      title={req.title}
-                      description={req.description}
-                      severity={req.severity}
-                      platforms={req.platforms}
-                      severityLabel={severityLabel}
-                      variant="table"
-                    />
+                        <RequirementDisplay
+                          id={req.id}
+                          title={req.title}
+                          description={req.description}
+                          severity={req.severity}
+                          platforms={req.platforms}
+                          tags={canonicalById.get(req.id)?.tags ?? req.tags}
+                          severityLabel={severityLabel}
+                          variant="table"
+                        />
                   </td>
                   {showPillarColumn && (
                     <td className="pillar-name-cell">{pillarName(req.pillarId)}</td>

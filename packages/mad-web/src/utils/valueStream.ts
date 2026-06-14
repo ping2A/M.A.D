@@ -705,23 +705,27 @@ export function valueStreamMapsEqual(a: ValueStreamMap, b: ValueStreamMap): bool
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export function formatDuration(
+export function formatDurationWithLabels(
   minutes: number | null | undefined,
-  style: "auto" | "compact" = "auto",
+  style: "auto" | "compact",
+  labels: DurationFormatLabels,
 ): string {
   if (minutes == null || Number.isNaN(minutes)) return "";
   const total = Math.round(minutes);
   if (total <= 0) return "0";
 
+  const part = (value: number, unit: string) =>
+    labels.sep ? `${value}${labels.sep}${unit}` : `${value}${unit}`;
+
   if (total < MINUTES_PER_HOUR) {
-    return `${total}m`;
+    return part(total, labels.minute);
   }
 
   if (total < MINUTES_PER_DAY) {
     const hours = Math.floor(total / MINUTES_PER_HOUR);
     const mins = total % MINUTES_PER_HOUR;
-    if (mins === 0 || style === "compact") return `${hours}h`;
-    return `${hours}h ${mins}m`;
+    if (mins === 0 || style === "compact") return part(hours, labels.hour);
+    return `${part(hours, labels.hour)} ${part(mins, labels.minute)}`;
   }
 
   if (total < MINUTES_PER_WEEK) {
@@ -729,23 +733,52 @@ export function formatDuration(
     const rem = total % MINUTES_PER_DAY;
     const hours = Math.floor(rem / MINUTES_PER_HOUR);
     const mins = rem % MINUTES_PER_HOUR;
-    if (hours === 0 && mins === 0) return `${days}d`;
+    if (hours === 0 && mins === 0) return part(days, labels.day);
     if (mins === 0 || style === "compact") {
-      return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+      return hours > 0
+        ? `${part(days, labels.day)} ${part(hours, labels.hour)}`
+        : part(days, labels.day);
     }
-    if (hours === 0) return `${days}d ${mins}m`;
-    return `${days}d ${hours}h`;
+    if (hours === 0) return `${part(days, labels.day)} ${part(mins, labels.minute)}`;
+    return `${part(days, labels.day)} ${part(hours, labels.hour)}`;
   }
 
   const weeks = Math.floor(total / MINUTES_PER_WEEK);
   const rem = total % MINUTES_PER_WEEK;
   const days = Math.floor(rem / MINUTES_PER_DAY);
   const hours = Math.floor((rem % MINUTES_PER_DAY) / MINUTES_PER_HOUR);
-  if (days === 0 && hours === 0) return `${weeks}w`;
+  if (days === 0 && hours === 0) return part(weeks, labels.week);
   if (hours === 0 || style === "compact") {
-    return days > 0 ? `${weeks}w ${days}d` : `${weeks}w`;
+    return days > 0
+      ? `${part(weeks, labels.week)} ${part(days, labels.day)}`
+      : part(weeks, labels.week);
   }
-  return days > 0 ? `${weeks}w ${days}d` : `${weeks}w ${hours}h`;
+  return days > 0
+    ? `${part(weeks, labels.week)} ${part(days, labels.day)}`
+    : `${part(weeks, labels.week)} ${part(hours, labels.hour)}`;
+}
+
+export interface DurationFormatLabels {
+  minute: string;
+  hour: string;
+  day: string;
+  week: string;
+  sep: string;
+}
+
+const EN_DURATION_LABELS: DurationFormatLabels = {
+  minute: "m",
+  hour: "h",
+  day: "d",
+  week: "w",
+  sep: "",
+};
+
+export function formatDuration(
+  minutes: number | null | undefined,
+  style: "auto" | "compact" = "auto",
+): string {
+  return formatDurationWithLabels(minutes, style, EN_DURATION_LABELS);
 }
 
 /** @deprecated Use formatDuration */

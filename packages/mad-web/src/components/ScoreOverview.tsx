@@ -1,13 +1,14 @@
 import { useMemo } from "react";
-import type { EvaluationReport } from "../types";
+import type { EvaluationReport, Pillar } from "../types";
 import { useLocale } from "../i18n/LocaleContext";
-import { buildFilteredEvaluation, collectVendorTags } from "../utils/comparisonFilter";
+import { buildFilteredEvaluation, collectFilterTags } from "../utils/comparisonFilter";
 import { formatMoney } from "../utils/pricing";
 import { rankScore, rankVendors, usesCompositeRanking } from "../utils/ranking";
 import { scoreColor } from "../utils/scoring";
 
 interface ScoreOverviewProps {
   evaluation: EvaluationReport;
+  pillars: Pillar[];
   activeTags: Set<string>;
   onActiveTagsChange: (tags: Set<string>) => void;
   onSelectVendor?: (vendorId: string) => void;
@@ -15,19 +16,23 @@ interface ScoreOverviewProps {
 
 export function ScoreOverview({
   evaluation,
+  pillars,
   activeTags,
   onActiveTagsChange,
   onSelectVendor,
 }: ScoreOverviewProps) {
   const { t, format } = useLocale();
-  const knownTags = useMemo(() => collectVendorTags(evaluation), [evaluation]);
+  const knownTags = useMemo(
+    () => collectFilterTags(evaluation, pillars),
+    [evaluation, pillars],
+  );
   const allVendorIds = useMemo(
     () => new Set(evaluation.vendors.map((v) => v.vendor.id)),
     [evaluation.vendors],
   );
   const filteredEvaluation = useMemo(
-    () => buildFilteredEvaluation(evaluation, allVendorIds, activeTags),
-    [evaluation, allVendorIds, activeTags],
+    () => buildFilteredEvaluation(evaluation, allVendorIds, activeTags, pillars),
+    [evaluation, allVendorIds, activeTags, pillars],
   );
   const ranked = useMemo(() => rankVendors(filteredEvaluation), [filteredEvaluation]);
   const compositeMode = usesCompositeRanking(filteredEvaluation);
