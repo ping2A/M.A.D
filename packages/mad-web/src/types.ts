@@ -152,6 +152,8 @@ export interface VsmEdge {
   label?: string;
   edge_type?: string;
   duration_minutes?: number;
+  /** Decision branch: `yes` (bottom) or `no` (right). */
+  source_handle?: string;
 }
 
 export interface VsmMessage {

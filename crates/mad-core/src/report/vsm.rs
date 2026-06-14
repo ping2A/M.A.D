@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::report::locale::{self, ReportLocale, ReportStrings};
 use crate::value_stream::{ValueStreamEntry, ValueStreamMap, VsmEdge, VsmNode, VsmNodeType};
@@ -994,6 +994,8 @@ fn render_svg_diagram(
         svg.push_str("  <g class=\"mad-vsm-world\">\n");
     }
 
+    let decision_handles = resolve_decision_edge_handles(map);
+
     for edge in &map.edges {
         let Some(from) = node_by_id.get(edge.from.as_str()) else {
             continue;
@@ -1002,8 +1004,10 @@ fn render_svg_diagram(
             continue;
         };
         let ft = flow_type_config(&edge.edge_type, flow_types);
-        let x1 = from.x + from.width - min_x + padding;
-        let y1 = from.y + from.height / 2.0 - min_y + padding;
+        let handle = decision_handles.get(&edge.id).map(|s| s.as_str());
+        let (sx, sy) = edge_source_point(from, handle.or(edge.source_handle.as_deref()));
+        let x1 = sx - min_x + padding;
+        let y1 = sy - min_y + padding;
         let x2 = to.x - min_x + padding;
         let y2 = to.y + to.height / 2.0 - min_y + padding;
         let dash = if ft.dashed {
@@ -1105,6 +1109,109 @@ pub fn hex_to_rgb(hex: &str) -> Option<(f32, f32, f32)> {
     Some((r, g, b))
 }
 
+fn edge_source_point(from: &VsmNode, source_handle: Option<&str>) -> (f64, f64) {
+    match (&from.node_type, source_handle) {
+        (VsmNodeType::Decision, Some("yes")) => {
+            (from.x + from.width / 2.0, from.y + from.height)
+        }
+        (VsmNodeType::Decision, Some("no")) => {
+            (from.x + from.width, from.y + from.height / 2.0)
+        }
+        _ => (from.x + from.width, from.y + from.height / 2.0),
+    }
+}
+
+fn infer_decision_source_handle(
+    edge: &VsmEdge,
+    decision: &VsmNode,
+    target: Option<&VsmNode>,
+) -> &'static str {
+    if edge.source_handle.as_deref() == Some("yes") {
+        return "yes";
+    }
+    if edge.source_handle.as_deref() == Some("no") {
+        return "no";
+    }
+    if let Some(label) = edge.label.as_deref() {
+        let l = label.trim().to_lowercase();
+        if matches!(
+            l.as_str(),
+            "yes" | "y" | "oui" | "true" | "approve" | "approved" | "ok" | "pass" | "accept"
+        ) {
+            return "yes";
+        }
+        if matches!(
+            l.as_str(),
+            "no" | "n" | "non" | "false" | "reject" | "rejected" | "denied" | "fail" | "nok"
+        ) {
+            return "no";
+        }
+    }
+    if let Some(to) = target {
+        let dc_y = decision.y + decision.height / 2.0;
+        let tc_y = to.y + to.height / 2.0;
+        return if tc_y <= dc_y { "yes" } else { "no" };
+    }
+    "yes"
+}
+
+fn resolve_decision_edge_handles(map: &ValueStreamMap) -> HashMap<String, String> {
+    let node_by_id: HashMap<&str, &VsmNode> = map.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let mut outgoing: HashMap<&str, Vec<&VsmEdge>> = HashMap::new();
+    for edge in &map.edges {
+        let Some(from) = node_by_id.get(edge.from.as_str()) else {
+            continue;
+        };
+        if !matches!(from.node_type, VsmNodeType::Decision) {
+            continue;
+        }
+        outgoing.entry(edge.from.as_str()).or_default().push(edge);
+    }
+
+    let mut result = HashMap::new();
+    for (_, edges) in outgoing {
+        let mut used = HashSet::new();
+        let mut sorted: Vec<&VsmEdge> = edges;
+        sorted.sort_by(|a, b| {
+            let ay = node_by_id
+                .get(a.to.as_str())
+                .map(|n| n.y + n.height / 2.0)
+                .unwrap_or(0.0);
+            let by = node_by_id
+                .get(b.to.as_str())
+                .map(|n| n.y + n.height / 2.0)
+                .unwrap_or(0.0);
+            ay.partial_cmp(&by).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let decision = node_by_id.get(sorted[0].from.as_str()).copied();
+        let Some(decision) = decision else {
+            continue;
+        };
+        for edge in sorted {
+            if edge.source_handle.as_deref() == Some("yes")
+                || edge.source_handle.as_deref() == Some("no")
+            {
+                let h = edge.source_handle.clone().unwrap();
+                result.insert(edge.id.clone(), h.clone());
+                used.insert(h);
+                continue;
+            }
+            let target = node_by_id.get(edge.to.as_str()).copied();
+            let mut handle = infer_decision_source_handle(edge, decision, target).to_string();
+            if used.contains(&handle) {
+                handle = if handle == "yes" {
+                    "no".into()
+                } else {
+                    "yes".into()
+                };
+            }
+            used.insert(handle.clone());
+            result.insert(edge.id.clone(), handle);
+        }
+    }
+    result
+}
+
 fn truncate_label(label: &str, max: usize) -> String {
     let trimmed = label.trim();
     if trimmed.chars().count() <= max {
@@ -1197,6 +1304,7 @@ mod tests {
                 label: None,
                 edge_type: "material".into(),
                 duration_minutes: Some(120.0),
+                source_handle: None,
             }],
             messages: vec![],
             flow_types: vec![],
@@ -1204,5 +1312,80 @@ mod tests {
         let timeline = build_timeline(&map);
         assert_eq!(timeline.stats.total_minutes, 120.0);
         assert_eq!(timeline.segments[0].from_label, "A");
+    }
+
+    #[test]
+    fn resolve_decision_branches_from_labels_and_geometry() {
+        let map = ValueStreamMap {
+            nodes: vec![
+                VsmNode {
+                    id: "d".into(),
+                    label: "Approved?".into(),
+                    node_type: VsmNodeType::Decision,
+                    x: 460.0,
+                    y: 90.0,
+                    width: 110.0,
+                    height: 110.0,
+                    notes: None,
+                    role: None,
+                    lead_time_minutes: None,
+                    cycle_time_minutes: None,
+                    author: None,
+                },
+                VsmNode {
+                    id: "yes".into(),
+                    label: "Enroll".into(),
+                    node_type: VsmNodeType::Process,
+                    x: 660.0,
+                    y: 60.0,
+                    width: 180.0,
+                    height: 72.0,
+                    notes: None,
+                    role: None,
+                    lead_time_minutes: None,
+                    cycle_time_minutes: None,
+                    author: None,
+                },
+                VsmNode {
+                    id: "no".into(),
+                    label: "Reject".into(),
+                    node_type: VsmNodeType::Process,
+                    x: 660.0,
+                    y: 200.0,
+                    width: 180.0,
+                    height: 72.0,
+                    notes: None,
+                    role: None,
+                    lead_time_minutes: None,
+                    cycle_time_minutes: None,
+                    author: None,
+                },
+            ],
+            edges: vec![
+                VsmEdge {
+                    id: "e-yes".into(),
+                    from: "d".into(),
+                    to: "yes".into(),
+                    label: Some("Yes".into()),
+                    edge_type: "material".into(),
+                    duration_minutes: None,
+                    source_handle: None,
+                },
+                VsmEdge {
+                    id: "e-no".into(),
+                    from: "d".into(),
+                    to: "no".into(),
+                    label: Some("No".into()),
+                    edge_type: "material".into(),
+                    duration_minutes: None,
+                    source_handle: None,
+                },
+            ],
+            messages: vec![],
+            flow_types: vec![],
+        };
+        let handles = resolve_decision_edge_handles(&map);
+        assert_eq!(handles.get("e-yes").map(|s| s.as_str()), Some("yes"));
+        assert_eq!(handles.get("e-no").map(|s| s.as_str()), Some("no"));
     }
 }

@@ -87,6 +87,9 @@ pub struct VsmEdge {
     pub edge_type: String,
     #[serde(default)]
     pub duration_minutes: Option<f64>,
+    /// Decision branch handle: `yes` (bottom) or `no` (right).
+    #[serde(default)]
+    pub source_handle: Option<String>,
 }
 
 fn default_edge_type() -> String {

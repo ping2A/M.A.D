@@ -187,6 +187,82 @@ export function isFlowTypeOverridden(type: VsmFlowTypeDef): boolean {
   return builtin.color !== type.color || builtin.dash !== type.dash;
 }
 
+export const DECISION_HANDLE_YES = "yes";
+export const DECISION_HANDLE_NO = "no";
+
+function labelPrefersYesHandle(label?: string | null): boolean | null {
+  if (!label?.trim()) return null;
+  const l = label.trim().toLowerCase();
+  if (/^(yes|y|oui|true|approve|approved|ok|pass|accept)$/.test(l)) return true;
+  if (/^(no|n|non|false|reject|rejected|denied|fail|nok)$/.test(l)) return false;
+  return null;
+}
+
+function inferDecisionSourceHandle(
+  edge: VsmEdge,
+  decision: VsmNode,
+  target?: VsmNode,
+): string {
+  if (edge.source_handle === DECISION_HANDLE_YES || edge.source_handle === DECISION_HANDLE_NO) {
+    return edge.source_handle;
+  }
+  const fromLabel = labelPrefersYesHandle(edge.label);
+  if (fromLabel === true) return DECISION_HANDLE_YES;
+  if (fromLabel === false) return DECISION_HANDLE_NO;
+  if (target) {
+    const dcY = decision.y + decision.height / 2;
+    const tcY = target.y + target.height / 2;
+    return tcY <= dcY ? DECISION_HANDLE_YES : DECISION_HANDLE_NO;
+  }
+  return DECISION_HANDLE_YES;
+}
+
+/** Assign yes/no handles for edges leaving decision nodes (import + legacy JSON). */
+export function resolveDecisionEdgeHandles(map: ValueStreamMap): Map<string, string> {
+  const nodeById = new Map(map.nodes.map((n) => [n.id, n]));
+  const result = new Map<string, string>();
+  const outgoing = new Map<string, VsmEdge[]>();
+
+  for (const edge of map.edges) {
+    const from = nodeById.get(edge.from);
+    if (from?.node_type !== "decision") continue;
+    const list = outgoing.get(edge.from) ?? [];
+    list.push(edge);
+    outgoing.set(edge.from, list);
+  }
+
+  for (const [, edges] of outgoing) {
+    if (edges.length === 0) continue;
+    const decision = nodeById.get(edges[0].from)!;
+    const usedHandles = new Set<string>();
+
+    const sorted = [...edges].sort((a, b) => {
+      const ta = nodeById.get(a.to);
+      const tb = nodeById.get(b.to);
+      const ay = ta ? ta.y + ta.height / 2 : 0;
+      const by = tb ? tb.y + tb.height / 2 : 0;
+      return ay - by;
+    });
+
+    for (const edge of sorted) {
+      if (edge.source_handle === DECISION_HANDLE_YES || edge.source_handle === DECISION_HANDLE_NO) {
+        result.set(edge.id, edge.source_handle);
+        usedHandles.add(edge.source_handle);
+        continue;
+      }
+      const target = nodeById.get(edge.to);
+      let handle = inferDecisionSourceHandle(edge, decision, target);
+      if (usedHandles.has(handle)) {
+        handle = handle === DECISION_HANDLE_YES ? DECISION_HANDLE_NO : DECISION_HANDLE_YES;
+      }
+      result.set(edge.id, handle);
+      usedHandles.add(handle);
+    }
+  }
+
+  return result;
+}
+
 export function nodeDimensions(type: VsmNodeType): { width: number; height: number } {
   switch (type) {
     case "decision":
@@ -209,6 +285,7 @@ export function vsmToFlow(
   map: ValueStreamMap,
   flowTypes: VsmFlowTypeDef[] = resolveFlowTypes(map),
 ): { nodes: Node[]; edges: Edge[] } {
+  const decisionHandles = resolveDecisionEdgeHandles(map);
   const nodes: Node[] = map.nodes.map((n) => ({
     id: n.id,
     type: n.node_type,
@@ -226,10 +303,12 @@ export function vsmToFlow(
   const edges: Edge[] = map.edges.map((e) => {
     const edgeType = e.edge_type ?? "material";
     const cfg = flowTypeConfig(edgeType, flowTypes);
+    const sourceHandle = decisionHandles.get(e.id);
     return {
       id: e.id,
       source: e.from,
       target: e.to,
+      sourceHandle,
       label: e.label ?? undefined,
       type: "vsm",
       data: {
@@ -253,6 +332,7 @@ export function flowToVsm(
   messages: VsmMessage[],
   customFlowTypes: VsmFlowTypeDef[] = [],
 ): ValueStreamMap {
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
   return {
     flow_types: flowTypesToPersist(customFlowTypes),
     nodes: nodes.map((n) => {
@@ -274,6 +354,12 @@ export function flowToVsm(
     }),
     edges: edges.map((e) => {
       const d = (e.data ?? {}) as VsmEdgeData;
+      const sourceNode = nodeById.get(e.source);
+      const sourceHandle =
+        sourceNode?.type === "decision" &&
+        (e.sourceHandle === DECISION_HANDLE_YES || e.sourceHandle === DECISION_HANDLE_NO)
+          ? e.sourceHandle
+          : undefined;
       return {
         id: e.id,
         from: e.source,
@@ -281,6 +367,7 @@ export function flowToVsm(
         label: e.label ? String(e.label) : undefined,
         edge_type: d.edgeType ?? "material",
         duration_minutes: d.durationMinutes ?? undefined,
+        source_handle: sourceHandle,
       };
     }),
     messages,
@@ -853,7 +940,24 @@ export function mdmEnrollmentTemplate(): ValueStreamMap {
   const edges: VsmEdge[] = [
     { id: "e1", from: "tpl-customer", to: "tpl-procure", edge_type: "information", duration_minutes: 480 },
     { id: "e2", from: "tpl-procure", to: "tpl-decide", edge_type: "information", duration_minutes: 2400 },
-    { id: "e3", from: "tpl-decide", to: "tpl-enroll", label: "Yes", edge_type: "material", duration_minutes: 120 },
+    {
+      id: "e3",
+      from: "tpl-decide",
+      to: "tpl-enroll",
+      label: "Yes",
+      edge_type: "material",
+      duration_minutes: 120,
+      source_handle: DECISION_HANDLE_YES,
+    },
+    {
+      id: "e3b",
+      from: "tpl-decide",
+      to: "tpl-mdm",
+      label: "No",
+      edge_type: "material",
+      duration_minutes: 120,
+      source_handle: DECISION_HANDLE_NO,
+    },
     { id: "e4", from: "tpl-enroll", to: "tpl-mdm", edge_type: "electronic", duration_minutes: 30 },
     { id: "e5", from: "tpl-mdm", to: "tpl-info", edge_type: "electronic", duration_minutes: 15 },
     { id: "e6", from: "tpl-info", to: "tpl-inv", edge_type: "material", duration_minutes: 60 },
