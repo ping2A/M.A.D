@@ -524,11 +524,96 @@ body { font-family: var(--font); color: var(--text); background: var(--bg); line
 .vsm-report-card h4 { color: var(--navy); font-size: 0.9rem; margin: 1rem 0 0.5rem; }
 .vsm-report-stats { display: flex; flex-wrap: wrap; gap: 1rem; font-size: 0.85rem; color: var(--muted); margin-bottom: 1rem; }
 .vsm-report-stats strong { color: var(--navy); }
-.vsm-report-diagram { overflow-x: auto; background: #f8fafc; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; }
-.vsm-svg { width: 100%; min-width: 320px; height: auto; display: block; }
-.vsm-node-label { font-size: 11px; font-weight: 600; fill: var(--navy); font-family: var(--font); }
-.vsm-node-author { font-size: 9px; fill: var(--muted); font-family: var(--font); }
-.vsm-edge-label, .vsm-edge-duration { font-size: 9px; fill: var(--muted); font-family: var(--font); }
+.vsm-report-diagram { overflow: auto; background: #f8fafc; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; }
+.vsm-diagram-wrap { position: relative; margin: 0 auto; }
+.vsm-diagram-canvas { position: relative; width: 100%; height: 100%; transform-origin: 0 0; }
+.vsm-edges-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.vsm-edges-layer { pointer-events: stroke; }
+.vsm-nodes-layer { position: absolute; inset: 0; pointer-events: none; }
+.vsm-html-node { position: absolute; pointer-events: auto; box-sizing: border-box; }
+.vsm-edge-path-label {
+  font-size: 10px; font-weight: 600; fill: var(--navy); font-family: var(--font);
+  paint-order: stroke fill; stroke: white; stroke-width: 3px;
+}
+.vsm-node {
+  position: relative; width: 100%; height: 100%; box-sizing: border-box;
+  padding: 0.5rem 0.65rem; border-radius: 8px; border: 2px solid #dde1e6;
+  background: white; font-size: 0.78rem; font-weight: 600; color: var(--navy);
+  min-width: 0; box-shadow: 0 2px 10px rgba(10, 22, 40, 0.1);
+}
+.vsm-node-meta { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.15rem; }
+.vsm-node-role {
+  font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--vsm-accent, #00b4d8);
+}
+.vsm-node-author {
+  font-size: 0.62rem; font-weight: 600; padding: 0.08rem 0.35rem; border-radius: 999px;
+  background: color-mix(in srgb, var(--vsm-accent, #00b4d8) 14%, white); color: var(--navy);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vsm-node-metrics { display: flex; gap: 0.35rem; margin-top: 0.3rem; flex-wrap: wrap; }
+.vsm-node-metrics span {
+  font-size: 0.62rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 4px;
+  background: color-mix(in srgb, var(--vsm-accent, #78909c) 12%, white); color: var(--navy);
+}
+.vsm-node-label { line-height: 1.3; word-break: break-word; }
+.vsm-node-notes { font-size: 0.68rem; font-weight: 400; color: var(--muted); margin-top: 0.2rem; }
+.vsm-node-process {
+  border-color: color-mix(in srgb, var(--vsm-accent) 55%, white);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--vsm-accent) 8%, white) 0%, #fff 100%);
+}
+.vsm-node-info { border-color: #9fd4ad; background: #f4fbf6; border-style: dashed; }
+.vsm-info-icon { position: absolute; top: 4px; right: 6px; font-size: 0.7rem; opacity: 0.7; }
+.vsm-node-delay { border-color: #f0d080; background: #fffaf0; border-radius: 20px; }
+.vsm-node-external {
+  border-color: #b0bec5; background: #f5f7f9; border-radius: 4px; transform: skewX(-6deg);
+}
+.vsm-node-external .vsm-node-label { transform: skewX(6deg); }
+.vsm-node-decision-wrap {
+  padding: 0; border: none; background: transparent; box-shadow: none; overflow: visible;
+}
+.vsm-node-decision-wrap .vsm-node-author { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); z-index: 1; }
+.vsm-node-decision {
+  width: 72px; height: 72px; margin: 14px auto; background: #fff8e8; border: 2px solid #e6a800;
+  transform: rotate(45deg); display: flex; align-items: center; justify-content: center;
+}
+.vsm-node-decision span {
+  transform: rotate(-45deg); font-size: 0.72rem; font-weight: 700; text-align: center;
+  line-height: 1.2; max-width: 56px;
+}
+.vsm-node-customer {
+  border-color: color-mix(in srgb, var(--vsm-accent) 50%, white);
+  background: linear-gradient(135deg, #f5f6ff 0%, #fff 100%); border-radius: 12px 12px 4px 4px;
+}
+.vsm-node-supplier {
+  border-color: color-mix(in srgb, var(--vsm-accent) 50%, white);
+  background: #faf6f4; border-radius: 4px 4px 12px 12px;
+}
+.vsm-shape-icon { position: absolute; top: 4px; right: 6px; font-size: 0.85rem; opacity: 0.85; }
+.vsm-node-inventory-wrap { padding: 0; border: none; background: transparent; box-shadow: none; }
+.vsm-node-inventory {
+  width: 0; height: 0; margin: 0 auto; border-left: 52px solid transparent;
+  border-right: 52px solid transparent;
+  border-bottom: 72px solid color-mix(in srgb, var(--vsm-accent) 18%, white);
+  position: relative; filter: drop-shadow(0 2px 6px rgba(10, 22, 40, 0.12));
+}
+.vsm-node-inventory span {
+  position: absolute; left: 50%; top: 28px; transform: translateX(-50%); width: 80px;
+  text-align: center; font-size: 0.68rem; font-weight: 700; line-height: 1.2; color: var(--navy);
+}
+.vsm-node-kaizen-wrap {
+  padding: 0; border: none; background: transparent; box-shadow: none;
+  display: flex; align-items: center; justify-content: center;
+}
+.vsm-node-kaizen-wrap .vsm-node-author { position: absolute; top: -2px; left: 50%; transform: translateX(-50%); z-index: 1; }
+.vsm-node-kaizen {
+  width: 88px; height: 88px; background: radial-gradient(circle at 30% 30%, #fff5f8 0%, #fce4ec 100%);
+  border: 2px dashed color-mix(in srgb, var(--vsm-accent) 70%, white); border-radius: 50%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem;
+  padding: 0.35rem; box-shadow: 0 2px 10px rgba(233, 30, 99, 0.15);
+}
+.vsm-kaizen-icon { font-size: 1rem; color: var(--vsm-accent); }
+.vsm-kaizen-label { font-size: 0.62rem; font-weight: 700; text-align: center; line-height: 1.15; max-width: 72px; }
 .vsm-report-legend ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; padding: 0; margin: 0; font-size: 0.8rem; }
 .vsm-report-legend li { display: flex; align-items: center; gap: 0.4rem; }
 .vsm-legend-line { display: inline-block; width: 28px; border-top: 3px solid; }
@@ -584,6 +669,6 @@ body { font-family: var(--font); color: var(--text); background: var(--bg); line
   body { background: white; }
   .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
   .header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .vsm-gantt-bar, .vsm-flow-badge, .vsm-svg rect, .vsm-svg line { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .vsm-gantt-bar, .vsm-flow-badge, .vsm-node, .vsm-node-decision, .vsm-node-inventory, .mad-vsm-edge path { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 "#;

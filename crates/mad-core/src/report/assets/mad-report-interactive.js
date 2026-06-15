@@ -97,7 +97,7 @@
       );
       const inspector = qs(".mad-vsm-inspector", viewer);
       const stage = qs(".mad-vsm-stage", viewer);
-      const world = qs(".mad-vsm-world", viewer);
+      const world = qs(".mad-vsm-world", viewer) || qs(".vsm-diagram-canvas", viewer);
       if (!stage || !world) return;
 
       let scale = 1;
@@ -108,10 +108,13 @@
       let ly = 0;
 
       function applyTransform() {
-        world.setAttribute(
-          "transform",
-          `translate(${tx} ${ty}) scale(${scale})`,
-        );
+        const transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+        if (world instanceof SVGGraphicsElement) {
+          world.setAttribute("transform", `translate(${tx} ${ty}) scale(${scale})`);
+        } else if (world) {
+          world.style.transform = transform;
+          world.style.transformOrigin = "0 0";
+        }
       }
 
       function bindInspectorClose() {

@@ -100,10 +100,18 @@ body.mad-interactive { padding-top: 0; }
   min-height: 280px; cursor: grab; touch-action: none;
 }
 .mad-vsm-stage:active { cursor: grabbing; }
-.mad-vsm-stage .vsm-svg { min-height: 260px; }
+.mad-vsm-stage .vsm-diagram-wrap { margin: 0 auto; }
 .mad-vsm-node { cursor: pointer; }
-.mad-vsm-node:hover rect { stroke-width: 2.5; }
-.mad-vsm-node.selected rect { stroke-width: 3; filter: drop-shadow(0 0 4px rgba(0,180,216,0.5)); }
+.mad-vsm-node .vsm-node { transition: box-shadow 0.12s, border-color 0.12s; }
+.mad-vsm-node:hover .vsm-node { box-shadow: 0 4px 14px rgba(10, 22, 40, 0.14); }
+.mad-vsm-node.selected .vsm-node {
+  border-color: var(--vsm-accent, var(--cyan)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vsm-accent, var(--cyan)) 25%, transparent), 0 4px 14px rgba(10, 22, 40, 0.14) !important;
+}
+.mad-vsm-node.selected .vsm-node-decision-wrap .vsm-node-decision {
+  border-color: var(--vsm-accent, #e6a800);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--vsm-accent, #e6a800) 25%, transparent);
+}
 .mad-vsm-inspector {
   position: absolute; top: 0.75rem; right: 0.75rem; width: min(260px, 90%);
   background: white; border-radius: 8px; padding: 1rem;
@@ -125,9 +133,12 @@ body.mad-interactive { padding-top: 0; }
 .mad-vsm-timeline-row { cursor: pointer; }
 .mad-vsm-timeline-row:hover { background: #f0fbff; }
 .mad-vsm-timeline-row.selected { background: #e3f8fd; }
-.mad-vsm-edge line { transition: stroke-width 0.12s; }
-.mad-vsm-edge.selected line { stroke-width: 4; }
-.mad-vsm-node.edge-source rect, .mad-vsm-node.edge-target rect { stroke-width: 2.5; }
+.mad-vsm-edge path { transition: stroke-width 0.12s; pointer-events: stroke; stroke-width: 2; }
+.mad-vsm-edge.selected path { stroke-width: 3.5; stroke-opacity: 1; }
+.mad-vsm-node.edge-source .vsm-node,
+.mad-vsm-node.edge-target .vsm-node {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cyan) 25%, transparent), 0 4px 14px rgba(10, 22, 40, 0.14);
+}
 .mad-vsm-node.edge-source { filter: drop-shadow(0 0 3px rgba(0,180,216,0.35)); }
 .mad-vsm-node.edge-target { filter: drop-shadow(0 0 3px rgba(30,136,229,0.35)); }
 .mad-doc-filter { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.75rem 0; }

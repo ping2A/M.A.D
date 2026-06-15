@@ -954,6 +954,160 @@ fn vsm_map_payload(map: &ValueStreamMap, locale: ReportLocale) -> String {
     )
 }
 
+fn edge_target_point(to: &VsmNode) -> (f64, f64) {
+    match to.node_type {
+        VsmNodeType::Decision | VsmNodeType::Kaizen => (to.x + to.width / 2.0, to.y),
+        _ => (to.x, to.y + to.height / 2.0),
+    }
+}
+
+fn smooth_step_path(sx: f64, sy: f64, tx: f64, ty: f64, radius: f64) -> String {
+    let dx = tx - sx;
+    let dy = ty - sy;
+    if dx.abs() < 1.0 && dy.abs() < 1.0 {
+        return format!("M {sx:.1} {sy:.1} L {tx:.1} {ty:.1}");
+    }
+    let r = radius.min(dx.abs() / 2.0).min(dy.abs() / 2.0).max(1.0);
+    if dy.abs() < 1.0 {
+        return format!("M {sx:.1} {sy:.1} L {tx:.1} {ty:.1}");
+    }
+    if dx.abs() < 1.0 {
+        return format!("M {sx:.1} {sy:.1} L {sx:.1} {ty:.1} L {tx:.1} {ty:.1}");
+    }
+    let mid_x = sx + dx / 2.0;
+    let sign_y = if dy >= 0.0 { 1.0 } else { -1.0 };
+    let sign_x = if dx >= 0.0 { 1.0 } else { -1.0 };
+    format!(
+        "M {sx:.1} {sy:.1} \
+         L {:.1} {sy:.1} \
+         Q {mid_x:.1} {sy:.1} {mid_x:.1} {:.1} \
+         L {mid_x:.1} {:.1} \
+         Q {mid_x:.1} {ty:.1} {:.1} {ty:.1} \
+         L {tx:.1} {ty:.1}",
+        mid_x - sign_x * r,
+        sy + sign_y * r,
+        ty - sign_y * r,
+        mid_x + sign_x * r,
+    )
+}
+
+fn path_label_point(sx: f64, sy: f64, tx: f64, ty: f64) -> (f64, f64) {
+    ((sx + tx) / 2.0, (sy + ty) / 2.0)
+}
+
+fn node_metrics_html(
+    node: &VsmNode,
+    dl: DurationLabels,
+    escape_html: fn(&str) -> String,
+) -> String {
+    let mut parts = Vec::new();
+    if let Some(lt) = node.lead_time_minutes.filter(|v| *v > 0.0) {
+        parts.push(format!(
+            "<span>LT {}</span>",
+            escape_html(&format_duration_labeled(lt, true, dl))
+        ));
+    }
+    if let Some(ct) = node.cycle_time_minutes.filter(|v| *v > 0.0) {
+        parts.push(format!(
+            "<span>CT {}</span>",
+            escape_html(&format_duration_labeled(ct, true, dl))
+        ));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("<div class=\"vsm-node-metrics\">{}</div>", parts.join(""))
+    }
+}
+
+fn render_html_node(
+    node: &VsmNode,
+    x: f64,
+    y: f64,
+    escape_html: fn(&str) -> String,
+    dl: DurationLabels,
+    interactive: bool,
+) -> String {
+    let accent = node_accent_color(&node.node_type);
+    let attrs = if interactive {
+        format!(
+            " class=\"mad-vsm-node vsm-html-node\" data-node-id=\"{}\"",
+            escape_html(&node.id)
+        )
+    } else {
+        " class=\"vsm-html-node\"".to_string()
+    };
+    let pos = format!(
+        " style=\"left:{x:.1}px;top:{y:.1}px;width:{:.1}px;height:{:.1}px;--vsm-accent:{accent}\"",
+        node.width, node.height
+    );
+    let author = node
+        .author
+        .as_deref()
+        .filter(|a| !a.is_empty())
+        .map(|a| format!("<div class=\"vsm-node-author\">{}</div>", escape_html(a.trim())))
+        .unwrap_or_default();
+    let role = node
+        .role
+        .as_deref()
+        .filter(|r| !r.is_empty())
+        .map(|r| format!("<div class=\"vsm-node-role\">{}</div>", escape_html(r.trim())))
+        .unwrap_or_default();
+    let meta = if role.is_empty() && author.is_empty() {
+        String::new()
+    } else if matches!(node.node_type, VsmNodeType::Decision | VsmNodeType::Kaizen) {
+        author
+    } else {
+        format!("<div class=\"vsm-node-meta\">{role}{author}</div>")
+    };
+    let notes = node
+        .notes
+        .as_deref()
+        .filter(|n| !n.is_empty())
+        .map(|n| format!("<div class=\"vsm-node-notes\">{}</div>", escape_html(n.trim())))
+        .unwrap_or_default();
+    let metrics = node_metrics_html(node, dl, escape_html);
+    let label = escape_html(node.label.trim());
+
+    match node.node_type {
+        VsmNodeType::Decision => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-decision-wrap\">{meta}<div class=\"vsm-node-decision\"><span>{label}</span></div>{metrics}</div></div>"
+        ),
+        VsmNodeType::Inventory => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-inventory-wrap\">{meta}<div class=\"vsm-node-inventory\"><span>{label}</span></div>{metrics}</div></div>"
+        ),
+        VsmNodeType::Kaizen => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-kaizen-wrap\">{meta}<div class=\"vsm-node-kaizen\"><span class=\"vsm-kaizen-icon\">✦</span><span class=\"vsm-kaizen-label\">{label}</span></div>{metrics}</div></div>"
+        ),
+        VsmNodeType::Info => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-info\"><span class=\"vsm-info-icon\">≋</span>{meta}<div class=\"vsm-node-label\">{label}</div>{notes}{metrics}</div></div>"
+        ),
+        VsmNodeType::Delay => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-delay\">{meta}<div class=\"vsm-node-label\">{label}</div>{notes}{metrics}</div></div>"
+        ),
+        VsmNodeType::External => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-external\"><div class=\"vsm-node-label\">{label}</div>{meta}{notes}{metrics}</div></div>"
+        ),
+        VsmNodeType::Customer => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-customer\"><span class=\"vsm-shape-icon\">👤</span>{meta}<div class=\"vsm-node-label\">{label}</div>{notes}{metrics}</div></div>"
+        ),
+        VsmNodeType::Supplier => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-supplier\"><span class=\"vsm-shape-icon\">🏭</span>{meta}<div class=\"vsm-node-label\">{label}</div>{notes}{metrics}</div></div>"
+        ),
+        _ => format!(
+            "<div{attrs}{pos}><div class=\"vsm-node vsm-node-process\">{meta}<div class=\"vsm-node-label\">{label}</div>{notes}{metrics}</div></div>"
+        ),
+    }
+}
+
+fn marker_id_for_color(color: &str) -> String {
+    color
+        .trim_start_matches('#')
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+}
+
 fn render_svg_diagram(
     map: &ValueStreamMap,
     flow_types: &[ResolvedFlowType],
@@ -965,7 +1119,7 @@ fn render_svg_diagram(
         return String::new();
     }
 
-    let padding = 24.0;
+    let padding = 32.0;
     let min_x = map.nodes.iter().map(|n| n.x).fold(f64::INFINITY, f64::min);
     let min_y = map.nodes.iter().map(|n| n.y).fold(f64::INFINITY, f64::min);
     let max_x = map
@@ -985,16 +1139,42 @@ fn render_svg_diagram(
     let view_h = content_h + padding * 2.0;
 
     let node_by_id: HashMap<&str, &VsmNode> = map.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-
-    let mut svg = String::new();
-    svg.push_str(&format!(
-        "<svg class=\"vsm-svg\" viewBox=\"0 0 {view_w:.1} {view_h:.1}\" xmlns=\"http://www.w3.org/2000/svg\" role=\"img\" aria-label=\"Value stream diagram\">\n"
-    ));
-    if interactive {
-        svg.push_str("  <g class=\"mad-vsm-world\">\n");
-    }
-
     let decision_handles = resolve_decision_edge_handles(map);
+
+    let world_class = if interactive {
+        "mad-vsm-world vsm-diagram-canvas"
+    } else {
+        "vsm-diagram-canvas"
+    };
+
+    let mut out = String::new();
+    out.push_str(&format!(
+        "<div class=\"vsm-diagram-wrap\" style=\"width:{view_w:.0}px;height:{view_h:.0}px;min-width:320px;\">\n"
+    ));
+    out.push_str(&format!("  <div class=\"{world_class}\">\n"));
+
+    out.push_str(&format!(
+        "    <svg class=\"vsm-edges-svg\" viewBox=\"0 0 {view_w:.1} {view_h:.1}\" xmlns=\"http://www.w3.org/2000/svg\" aria-hidden=\"true\">\n"
+    ));
+    out.push_str("      <defs>\n");
+    let mut marker_colors: Vec<&str> = Vec::new();
+    for edge in &map.edges {
+        let ft = flow_type_config(&edge.edge_type, flow_types);
+        if !marker_colors.contains(&ft.color.as_str()) {
+            marker_colors.push(&ft.color);
+        }
+    }
+    for color in marker_colors {
+        let id = marker_id_for_color(color);
+        out.push_str(&format!(
+            "        <marker id=\"arrow-{id}\" markerWidth=\"10\" markerHeight=\"10\" refX=\"9\" refY=\"3\" orient=\"auto\" markerUnits=\"strokeWidth\">\n\
+             <path d=\"M0,0 L0,6 L9,3 z\" fill=\"{color}\"/>\n\
+             </marker>\n",
+            color = escape_html(color)
+        ));
+    }
+    out.push_str("      </defs>\n");
+    out.push_str("      <g class=\"vsm-edges-layer\">\n");
 
     for edge in &map.edges {
         let Some(from) = node_by_id.get(edge.from.as_str()) else {
@@ -1006,95 +1186,64 @@ fn render_svg_diagram(
         let ft = flow_type_config(&edge.edge_type, flow_types);
         let handle = decision_handles.get(&edge.id).map(|s| s.as_str());
         let (sx, sy) = edge_source_point(from, handle.or(edge.source_handle.as_deref()));
+        let (tx, ty) = edge_target_point(to);
         let x1 = sx - min_x + padding;
         let y1 = sy - min_y + padding;
-        let x2 = to.x - min_x + padding;
-        let y2 = to.y + to.height / 2.0 - min_y + padding;
+        let x2 = tx - min_x + padding;
+        let y2 = ty - min_y + padding;
+        let path = smooth_step_path(x1, y1, x2, y2, 12.0);
         let dash = if ft.dashed {
             " stroke-dasharray=\"6 4\""
         } else {
             ""
         };
-        if interactive {
-            svg.push_str(&format!(
-                "  <g class=\"mad-vsm-edge\" data-edge-id=\"{}\" data-from-node=\"{}\" data-to-node=\"{}\">\n",
+        let marker_id = marker_id_for_color(&ft.color);
+        let edge_group = if interactive {
+            format!(
+                " class=\"mad-vsm-edge\" data-edge-id=\"{}\" data-from-node=\"{}\" data-to-node=\"{}\"",
                 escape_html(&edge.id),
                 escape_html(&edge.from),
                 escape_html(&edge.to),
-            ));
-        }
-        svg.push_str(&format!(
-            "  <line x1=\"{x1:.1}\" y1=\"{y1:.1}\" x2=\"{x2:.1}\" y2=\"{y2:.1}\" stroke=\"{}\" stroke-width=\"2\"{dash} />\n",
+            )
+        } else {
+            String::new()
+        };
+        out.push_str(&format!("        <g{edge_group}>\n"));
+        out.push_str(&format!(
+            "          <path d=\"{path}\" fill=\"none\" stroke=\"{}\" stroke-width=\"2\" stroke-opacity=\"0.88\" marker-end=\"url(#arrow-{marker_id})\"{dash}/>\n",
             escape_html(&ft.color)
         ));
-        if let Some(label) = &edge.label {
-            if !label.trim().is_empty() {
-                let mx = (x1 + x2) / 2.0;
-                let my = (y1 + y2) / 2.0 - 4.0;
-                svg.push_str(&format!(
-                    "  <text x=\"{mx:.1}\" y=\"{my:.1}\" class=\"vsm-edge-label\" text-anchor=\"middle\">{}</text>\n",
-                    escape_html(label.trim())
-                ));
-            }
+        let mut label_parts = Vec::new();
+        if let Some(l) = edge.label.as_deref().filter(|s| !s.trim().is_empty()) {
+            label_parts.push(escape_html(l.trim()));
         }
         if let Some(mins) = edge.duration_minutes.filter(|v| *v > 0.0) {
-            let mx = (x1 + x2) / 2.0;
-            let my = (y1 + y2) / 2.0 + 10.0;
-            svg.push_str(&format!(
-                "  <text x=\"{mx:.1}\" y=\"{my:.1}\" class=\"vsm-edge-duration\" text-anchor=\"middle\">{}</text>\n",
-                escape_html(&format_duration_labeled(mins, true, dl))
+            label_parts.push(escape_html(&format_duration_labeled(mins, true, dl)));
+        }
+        if !label_parts.is_empty() {
+            let (lx, ly) = path_label_point(x1, y1, x2, y2);
+            out.push_str(&format!(
+                "          <text x=\"{lx:.1}\" y=\"{ly:.1}\" class=\"vsm-edge-path-label\" text-anchor=\"middle\" dominant-baseline=\"middle\">{}</text>\n",
+                label_parts.join(" · ")
             ));
         }
-        if interactive {
-            svg.push_str("  </g>\n");
-        }
+        out.push_str("        </g>\n");
     }
+    out.push_str("      </g>\n");
+    out.push_str("    </svg>\n");
 
+    out.push_str("    <div class=\"vsm-nodes-layer\">\n");
     for node in &map.nodes {
         let x = node.x - min_x + padding;
         let y = node.y - min_y + padding;
-        let color = node_accent_color(&node.node_type);
-        let rx = if matches!(node.node_type, VsmNodeType::Decision | VsmNodeType::Kaizen) {
-            10.0
-        } else {
-            6.0
-        };
-        if interactive {
-            svg.push_str(&format!(
-                "  <g class=\"mad-vsm-node\" data-node-id=\"{}\" tabindex=\"0\" role=\"button\" aria-label=\"{}\">\n",
-                escape_html(&node.id),
-                escape_html(&node.label),
-            ));
-        }
-        svg.push_str(&format!(
-            "  <rect x=\"{x:.1}\" y=\"{y:.1}\" width=\"{:.1}\" height=\"{:.1}\" rx=\"{rx}\" fill=\"{color}\" fill-opacity=\"0.12\" stroke=\"{color}\" stroke-width=\"1.5\" />\n",
-            node.width, node.height
-        ));
-        let label = truncate_label(&node.label, 22);
-        svg.push_str(&format!(
-            "  <text x=\"{:.1}\" y=\"{:.1}\" class=\"vsm-node-label\" text-anchor=\"middle\">{}</text>\n",
-            x + node.width / 2.0,
-            y + node.height / 2.0 + 4.0,
-            escape_html(&label)
-        ));
-        if let Some(author) = node.author.as_deref().filter(|a| !a.is_empty()) {
-            svg.push_str(&format!(
-                "  <text x=\"{:.1}\" y=\"{:.1}\" class=\"vsm-node-author\" text-anchor=\"middle\">{}</text>\n",
-                x + node.width / 2.0,
-                y + node.height - 6.0,
-                escape_html(&truncate_label(author, 18))
-            ));
-        }
-        if interactive {
-            svg.push_str("  </g>\n");
-        }
+        out.push_str("      ");
+        out.push_str(&render_html_node(node, x, y, escape_html, dl, interactive));
+        out.push_str("\n");
     }
-
-    if interactive {
-        svg.push_str("  </g>\n");
-    }
-    svg.push_str("</svg>\n");
-    svg
+    out.push_str("    </div>\n");
+    out.push_str("  </div>\n");
+    out.push_str("</div>\n");
+    out
 }
 
 /// Parse `#rrggbb` hex color to 0–1 RGB components for PDF rendering.
