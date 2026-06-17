@@ -14,10 +14,11 @@ pub mod workspace_bundle;
 
 pub use error::MadError;
 pub use evaluation::{
-    filter_evaluation_by_tags, filter_vendor_map, parse_vendor_tags_query,
-    requirement_applies_to_vendor, requirement_matches_tags, requirement_tags_from_bundle,
-    sample_vendor_set_file, sample_vendors, vendor_matches_criteria_tag_filter,
-    vendor_matches_tags, EvaluationReport, EvaluationResult, Evaluator,
+    criterion_in_tag_filter_scope, filter_evaluation_by_tags, filter_vendor_map,
+    parse_vendor_tags_query, requirement_applies_to_vendor, requirement_matches_tags,
+    requirement_tags_from_bundle, sample_vendor_set_file, sample_vendors, split_active_tags,
+    vendor_in_tag_filter_scope, vendor_matches_criteria_tag_filter, vendor_matches_tags,
+    EvaluationReport, EvaluationResult, Evaluator,
 };
 pub use pillar::{Pillar, PillarId, Requirement, RequirementSeverity};
 pub use pricing::{BillingPeriod, ProcurementConfig, VendorPricing};

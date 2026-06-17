@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::evaluation::EvaluationReport;
+use crate::evaluation::{criterion_in_tag_filter_scope, requirement_tags_from_bundle, EvaluationReport};
 use crate::policy::PolicyBundle;
 use crate::report::{html_interactive, locale, vendor_doc, vsm};
 use crate::report::locale::ReportLocale;
@@ -54,6 +54,19 @@ pub fn render_html(
     let interactive = options.interactive;
     let locale = options.locale;
     let s = locale::strings(locale);
+    let req_tags = requirement_tags_from_bundle(bundle);
+    let filtered_req_count = if options.filter_tags.is_empty() {
+        evaluation.total_requirements
+    } else {
+        bundle
+            .pillars
+            .iter()
+            .flat_map(|p| &p.requirements)
+            .filter(|r| {
+                criterion_in_tag_filter_scope(&r.tags, &options.filter_tags, &req_tags)
+            })
+            .count()
+    };
     let has_vsm = vsm::any_value_streams(value_streams);
     let has_docs = vendor_doc::any_vendor_docs(vendor_docs);
 
@@ -110,7 +123,7 @@ pub fn render_html(
     out.push_str(&format!(
         "  <span><strong>{}</strong> {} ({} critical)</span>\n",
         s.meta_requirements,
-        evaluation.total_requirements,
+        filtered_req_count,
         evaluation.critical_requirements
     ));
     out.push_str(&format!(
@@ -137,6 +150,17 @@ pub fn render_html(
 
     if interactive {
         out.push_str(&html_interactive::render_dashboard(&ranked, score_color, s));
+    }
+
+    if !ranked.is_empty() {
+        out.push_str(&html_interactive::render_comparison_section(
+            &ranked,
+            bundle,
+            locale,
+            score_color,
+            escape_html,
+            s,
+        ));
     }
 
     // Section 1: Methodology
@@ -172,6 +196,16 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
     out.push_str(s.section_requirements);
     out.push_str("</h2>\n");
     for pillar in &bundle.pillars {
+        let visible_reqs: Vec<_> = pillar
+            .requirements
+            .iter()
+            .filter(|r| {
+                criterion_in_tag_filter_scope(&r.tags, &options.filter_tags, &req_tags)
+            })
+            .collect();
+        if visible_reqs.is_empty() {
+            continue;
+        }
         let (pillar_name, pillar_desc) = locale::localized_pillar_fields(pillar, locale);
         if interactive {
             out.push_str(&format!(
@@ -180,7 +214,7 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
                    <div class=\"mad-pillar-body\">\n\
                    <p class=\"muted\">{}</p>\n",
                 escape_html(&pillar_name),
-                pillar.requirements.len(),
+                visible_reqs.len(),
                 s.requirements_count,
                 escape_html(&pillar_desc)
             ));
@@ -191,7 +225,7 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
                 escape_html(&pillar_desc)
             ));
         }
-        for req in &pillar.requirements {
+        for req in visible_reqs {
             let severity = locale::severity_label(req.severity, locale);
             let loc = locale::localize_requirement(req, locale);
             out.push_str("  <div class=\"requirement\">\n");
@@ -287,6 +321,9 @@ overall_score  = mean(cybersecurity, dfir, platform_os)</pre>\n");
             ));
             out.push_str("      <tbody>\n");
             for req in &pillar.requirements {
+                if !options.filter_tags.is_empty() && !req.applicable {
+                    continue;
+                }
                 let title = locale::requirement_title(&req.requirement_id, &req.title, locale);
                 let (status_cell, notes_cell) = if req.applicable {
                     let status = status_str(req.status);
@@ -665,10 +702,28 @@ body { font-family: var(--font); color: var(--text); background: var(--bg); line
 .mad-vsm-timeline-milestone-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mad-vsm-timeline-details { margin-top: 1rem; }
 .mad-vsm-timeline-details summary { cursor: pointer; font-weight: 600; color: var(--navy); margin-bottom: 0.5rem; }
+.mad-compare-section { margin-bottom: 1.5rem; }
+.compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
+.compare-card { background: #f8fafc; border: 1px solid #e2e6ea; border-radius: 8px; padding: 1rem 1.25rem; }
+.compare-card h3 { color: var(--navy); font-size: 0.95rem; margin-bottom: 0.75rem; }
+.mad-leaderboard { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.65rem; }
+.mad-leaderboard li { display: grid; grid-template-columns: auto 1fr auto; gap: 0.5rem 0.75rem; align-items: center; font-size: 0.85rem; }
+.mad-leaderboard .rank { font-weight: 800; color: var(--navy); opacity: 0.35; }
+.mad-leaderboard .name { font-weight: 600; color: var(--navy); }
+.mad-leaderboard .leader-bar-track { grid-column: 2; height: 8px; background: #e8eaed; border-radius: 4px; overflow: hidden; }
+.mad-leaderboard .leader-bar-fill { height: 100%; border-radius: 4px; }
+.mad-leaderboard .score { font-family: var(--mono); font-weight: 700; }
+.mad-leaderboard .gaps { grid-column: 2 / -1; font-size: 0.75rem; color: var(--gap); }
+.radar-wrap { display: flex; flex-direction: column; align-items: center; }
+.radar { width: 100%; max-width: 320px; height: auto; display: block; }
+.radar-axis-label { font-size: 10px; font-weight: 600; fill: var(--muted); font-family: var(--font); }
+.radar-legend { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.5rem; font-size: 0.8rem; width: 100%; }
+.radar-legend span { display: flex; align-items: center; gap: 0.4rem; color: var(--navy); }
+.radar-legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
 @media print {
   body { background: white; }
   .card { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
   .header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .vsm-gantt-bar, .vsm-flow-badge, .vsm-node, .vsm-node-decision, .vsm-node-inventory, .mad-vsm-edge path { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .vsm-gantt-bar, .vsm-flow-badge, .vsm-node, .vsm-node-decision, .vsm-node-inventory, .mad-vsm-edge path, .radar polygon { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 "#;

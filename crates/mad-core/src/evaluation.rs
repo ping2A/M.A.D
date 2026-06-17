@@ -334,9 +334,76 @@ pub fn requirement_tags_from_bundle(bundle: &PolicyBundle) -> HashMap<String, Ve
     map
 }
 
+fn tag_on_any_criterion(tag: &str, req_tags: &HashMap<String, Vec<String>>) -> bool {
+    let normalized = normalize_tag(tag);
+    req_tags.values().any(|tags| {
+        tags.iter()
+            .any(|t| normalize_tag(t) == normalized)
+    })
+}
+
+/// Split selected chips into tags on criteria vs vendor-only labels.
+pub fn split_active_tags(
+    active_tags: &[String],
+    req_tags: &HashMap<String, Vec<String>>,
+) -> (Vec<String>, Vec<String>) {
+    let mut criteria_tags = Vec::new();
+    let mut vendor_tags = Vec::new();
+    let mut seen_criteria = HashSet::new();
+    let mut seen_vendor = HashSet::new();
+    for tag in active_tags {
+        let normalized = normalize_tag(tag);
+        if normalized.is_empty() {
+            continue;
+        }
+        if tag_on_any_criterion(&normalized, req_tags) {
+            if seen_criteria.insert(normalized.clone()) {
+                criteria_tags.push(normalized);
+            }
+        } else if seen_vendor.insert(normalized.clone()) {
+            vendor_tags.push(normalized);
+        }
+    }
+    (criteria_tags, vendor_tags)
+}
+
+pub fn vendor_in_tag_filter_scope(
+    vendor: &Vendor,
+    active_tags: &[String],
+    req_tags: &HashMap<String, Vec<String>>,
+) -> bool {
+    if active_tags.is_empty() {
+        return true;
+    }
+    let (criteria_tags, vendor_tags) = split_active_tags(active_tags, req_tags);
+    if !vendor_tags.is_empty() && vendor_matches_tags(vendor, &vendor_tags) {
+        return true;
+    }
+    if !criteria_tags.is_empty() && vendor_matches_criteria_tag_filter(vendor, &criteria_tags, req_tags)
+    {
+        return true;
+    }
+    false
+}
+
+pub fn criterion_in_tag_filter_scope(
+    requirement_tags: &[String],
+    active_tags: &[String],
+    req_tags: &HashMap<String, Vec<String>>,
+) -> bool {
+    if active_tags.is_empty() {
+        return true;
+    }
+    let (criteria_tags, vendor_tags) = split_active_tags(active_tags, req_tags);
+    if !criteria_tags.is_empty() {
+        return requirement_matches_tags(requirement_tags, &criteria_tags);
+    }
+    !vendor_tags.is_empty()
+}
+
 fn recompute_vendor_for_tag_filter(
     result: &mut EvaluationResult,
-    filter_tags: &[String],
+    criteria_tags: &[String],
     req_tags: &HashMap<String, Vec<String>>,
     scoring: &ScoringConfig,
 ) {
@@ -347,8 +414,10 @@ fn recompute_vendor_for_tag_filter(
                 .get(&req.requirement_id)
                 .map(|t| t.as_slice())
                 .unwrap_or(&[]);
-            req.applicable = requirement_applies_to_vendor(tags, vendor_tags)
-                && requirement_matches_tags(tags, filter_tags);
+            let vendor_ok = requirement_applies_to_vendor(tags, vendor_tags);
+            let tag_ok =
+                criteria_tags.is_empty() || requirement_matches_tags(tags, criteria_tags);
+            req.applicable = vendor_ok && tag_ok;
         }
         let scored: Vec<RequirementResult> = pillar
             .requirements
@@ -414,12 +483,13 @@ pub fn filter_evaluation_by_tags(
     if tags.is_empty() {
         return report;
     }
-    report.vendors.retain(|result| {
-        vendor_matches_criteria_tag_filter(&result.vendor, tags, req_tags)
-    });
+    let (criteria_tags, _) = split_active_tags(tags, req_tags);
+    report
+        .vendors
+        .retain(|result| vendor_in_tag_filter_scope(&result.vendor, tags, req_tags));
     let scoring = report.scoring.clone();
     for result in &mut report.vendors {
-        recompute_vendor_for_tag_filter(result, tags, req_tags, &scoring);
+        recompute_vendor_for_tag_filter(result, &criteria_tags, req_tags, &scoring);
     }
     apply_price_ranking(&mut report.vendors, &report.procurement);
     report
@@ -916,5 +986,88 @@ mod tests {
         ));
         assert!(!requirement_matches_tags(&[], &["apple".into()]));
         assert!(requirement_matches_tags(&["ios".into()], &[]));
+    }
+
+    #[test]
+    fn split_active_tags_separates_vendor_only_labels() {
+        let mut req_tags = HashMap::new();
+        req_tags.insert("r1".into(), vec!["apt".into()]);
+        let (criteria, vendor) =
+            split_active_tags(&["apt".into(), "shortlist".into()], &req_tags);
+        assert_eq!(criteria, vec!["apt"]);
+        assert_eq!(vendor, vec!["shortlist"]);
+    }
+
+    #[test]
+    fn vendor_only_tag_filter_keeps_vendors_without_scoping_criteria() {
+        use crate::vendor::VendorId;
+
+        let mut req_tags = HashMap::new();
+        req_tags.insert("r1".into(), vec![]);
+        let vendor_a = Vendor {
+            id: VendorId::new("a"),
+            name: "A".into(),
+            description: String::new(),
+            website: None,
+            pricing: None,
+            tags: vec!["shortlist".into()],
+        };
+        let vendor_b = Vendor {
+            id: VendorId::new("b"),
+            name: "B".into(),
+            description: String::new(),
+            website: None,
+            pricing: None,
+            tags: vec![],
+        };
+        let make_result = |vendor: Vendor| EvaluationResult {
+            vendor: vendor.clone(),
+            pillars: vec![PillarEvaluation {
+                pillar_id: "p".into(),
+                pillar_name: "P".into(),
+                requirements: vec![RequirementResult {
+                    requirement_id: "r1".into(),
+                    title: "Req".into(),
+                    severity: crate::pillar::RequirementSeverity::Medium,
+                    status: ComplianceStatus::Compliant,
+                    notes: None,
+                    applicable: true,
+                }],
+                score: PillarScore {
+                    pillar_id: "p".into(),
+                    compliant: 1,
+                    partial: 0,
+                    non_compliant: 0,
+                    untested: 0,
+                    total: 1,
+                    score_percent: 100.0,
+                },
+            }],
+            overall_score: VendorScore {
+                vendor,
+                pillar_scores: vec![],
+                overall_score_percent: 100.0,
+                critical_gaps: vec![],
+                annual_cost_per_device: None,
+                total_annual_cost: None,
+                price_currency: None,
+                price_score_percent: None,
+                composite_score_percent: None,
+            },
+        };
+        let report = EvaluationReport {
+            policy_version: "1".into(),
+            total_requirements: 1,
+            critical_requirements: 0,
+            scoring: ScoringConfig::default(),
+            procurement: ProcurementConfig::default(),
+            vendors: vec![make_result(vendor_a), make_result(vendor_b)],
+        };
+        let filtered = filter_evaluation_by_tags(report, &["shortlist".into()], &req_tags);
+        assert_eq!(filtered.vendors.len(), 1);
+        assert_eq!(filtered.vendors[0].vendor.id.0, "a");
+        let req = &filtered.vendors[0].pillars[0].requirements[0];
+        assert!(req.applicable);
+        assert_eq!(filtered.vendors[0].overall_score.overall_score_percent, 100.0);
     }
 }

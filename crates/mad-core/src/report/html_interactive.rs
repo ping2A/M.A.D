@@ -168,6 +168,7 @@ pub fn render_topbar(
         ("section-methodology", s.nav_method),
         ("section-requirements", s.nav_requirements),
         ("section-results", s.nav_results),
+        ("section-compare", s.nav_compare),
     ] {
         out.push_str(&format!("      <a href=\"#{id}\">{label}</a>\n"));
     }
@@ -210,6 +211,7 @@ pub fn render_sidebar(s: &ReportStrings) -> String {
     <li><a href="#section-methodology">{method}</a></li>
     <li><a href="#section-requirements">{req}</a></li>
     <li><a href="#section-results">{res}</a></li>
+    <li><a href="#section-compare">{compare}</a></li>
     <li><a href="#section-vsm">{vsm}</a></li>
     <li><a href="#section-docs">{docs}</a></li>
   </ul>
@@ -219,6 +221,7 @@ pub fn render_sidebar(s: &ReportStrings) -> String {
         method = s.toc_methodology,
         req = s.toc_requirements,
         res = s.toc_results,
+        compare = s.toc_compare,
         vsm = s.toc_vsm,
         docs = s.toc_docs,
     )
@@ -255,6 +258,176 @@ pub fn render_dashboard(
         out.push_str("  </div>\n");
     }
     out.push_str("</div>\n");
+    out
+}
+
+const RADAR_COLORS: [&str; 5] = ["#00b4d8", "#1e3a5f", "#28a745", "#fd7e14", "#6f42c1"];
+
+fn pillar_short_label(name: &str) -> String {
+    name.split_whitespace().next().unwrap_or(name).to_string()
+}
+
+pub fn render_radar_chart(
+    ranked: &[&EvaluationResult],
+    pillar_ids: &[String],
+    pillar_label: impl Fn(&str, &str) -> String,
+    escape_html: fn(&str) -> String,
+) -> String {
+    if ranked.is_empty() || pillar_ids.is_empty() {
+        return String::new();
+    }
+
+    let cx = 160.0;
+    let cy = 160.0;
+    let max_r = 120.0;
+    let n = pillar_ids.len().max(1) as f64;
+    let angle_step = std::f64::consts::TAU / n;
+    let grid_levels = [0.25, 0.5, 0.75, 1.0];
+
+    let mut out = String::from("<div class=\"radar-wrap\">\n");
+    out.push_str("  <svg viewBox=\"0 0 320 340\" class=\"radar\" role=\"img\" aria-label=\"Pillar radar\">\n");
+
+    for level in grid_levels {
+        let points: Vec<String> = pillar_ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                let a = -std::f64::consts::FRAC_PI_2 + i as f64 * angle_step;
+                let r = max_r * level;
+                format!(
+                    "{:.1},{:.1}",
+                    cx + r * a.cos(),
+                    cy + r * a.sin()
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "    <polygon points=\"{}\" fill=\"none\" stroke=\"#dde1e6\" stroke-width=\"1\"/>\n",
+            points.join(" ")
+        ));
+    }
+
+    for (i, pid) in pillar_ids.iter().enumerate() {
+        let a = -std::f64::consts::FRAC_PI_2 + i as f64 * angle_step;
+        let px = cx + max_r * a.cos();
+        let py = cy + max_r * a.sin();
+        let name = ranked
+            .iter()
+            .find_map(|r| {
+                r.pillars
+                    .iter()
+                    .find(|p| p.pillar_id == *pid)
+                    .map(|p| pillar_label(pid, &p.pillar_name))
+            })
+            .unwrap_or_else(|| pid.clone());
+        let label = escape_html(&pillar_short_label(&name));
+        let tx = (px - cx) * 0.18;
+        let ty = (py - cy) * 0.18;
+        out.push_str(&format!(
+            "    <line x1=\"{cx:.1}\" y1=\"{cy:.1}\" x2=\"{px:.1}\" y2=\"{py:.1}\" stroke=\"#dde1e6\"/>\n\
+             <text x=\"{px:.1}\" y=\"{py:.1}\" class=\"radar-axis-label\" text-anchor=\"middle\" dominant-baseline=\"middle\" transform=\"translate({tx:.1},{ty:.1})\">{label}</text>\n",
+        ));
+    }
+
+    for (vi, result) in ranked.iter().enumerate() {
+        let color = RADAR_COLORS[vi % RADAR_COLORS.len()];
+        let points: Vec<String> = pillar_ids
+            .iter()
+            .enumerate()
+            .map(|(i, pid)| {
+                let pillar = result.pillars.iter().find(|p| p.pillar_id == *pid);
+                let pct = pillar.map(|p| p.score.score_percent).unwrap_or(0.0) / 100.0;
+                let a = -std::f64::consts::FRAC_PI_2 + i as f64 * angle_step;
+                let r = max_r * pct;
+                format!(
+                    "{:.1},{:.1}",
+                    cx + r * a.cos(),
+                    cy + r * a.sin()
+                )
+            })
+            .collect();
+        out.push_str(&format!(
+            "    <polygon points=\"{}\" fill=\"{color}\" fill-opacity=\"0.2\" stroke=\"{color}\" stroke-width=\"2\"/>\n",
+            points.join(" ")
+        ));
+    }
+
+    out.push_str("  </svg>\n");
+    out.push_str("  <div class=\"radar-legend\">\n");
+    for (vi, result) in ranked.iter().enumerate() {
+        let color = RADAR_COLORS[vi % RADAR_COLORS.len()];
+        let score = result.overall_score.overall_score_percent;
+        out.push_str(&format!(
+            "    <span><i style=\"background:{color}\"></i>{} ({score:.0}%)</span>\n",
+            escape_html(&result.vendor.name),
+        ));
+    }
+    out.push_str("  </div>\n");
+    out.push_str("</div>\n");
+    out
+}
+
+pub fn render_comparison_section(
+    ranked: &[&EvaluationResult],
+    bundle: &PolicyBundle,
+    locale: crate::report::locale::ReportLocale,
+    score_color: fn(f64) -> &'static str,
+    escape_html: fn(&str) -> String,
+    s: &ReportStrings,
+) -> String {
+    if ranked.is_empty() {
+        return String::new();
+    }
+
+    let pillar_ids: Vec<String> = bundle.pillars.iter().map(|p| p.id.clone()).collect();
+    let pillar_label = |id: &str, fallback: &str| {
+        crate::report::locale::pillar_name(id, fallback, locale).into_owned()
+    };
+
+    let mut out = String::from("<section class=\"card mad-compare-section\" id=\"section-compare\">\n");
+    out.push_str(&format!("  <h2>{}</h2>\n", s.section_compare));
+    out.push_str("  <div class=\"compare-grid\">\n");
+
+    out.push_str("    <div class=\"compare-card\">\n");
+    out.push_str(&format!("      <h3>{}</h3>\n", s.compare_leaderboard));
+    out.push_str("      <ol class=\"mad-leaderboard\">\n");
+    for (rank, result) in ranked.iter().enumerate() {
+        let score = result.overall_score.overall_score_percent;
+        let color = score_color(score);
+        out.push_str(&format!(
+            "        <li data-vendor-id=\"{}\">\n\
+               <span class=\"rank\">#{}</span>\n\
+               <span class=\"name\">{}</span>\n\
+               <div class=\"leader-bar-track\"><div class=\"leader-bar-fill\" style=\"width:{score:.0}%;background:{color}\"></div></div>\n\
+               <span class=\"score\" style=\"color:{color}\">{score:.1}%</span>\n",
+            escape_attr(&result.vendor.id.0),
+            rank + 1,
+            escape_html(&result.vendor.name),
+        ));
+        if !result.overall_score.critical_gaps.is_empty() {
+            out.push_str(&format!(
+                "          <span class=\"gaps\">{} {}</span>\n",
+                result.overall_score.critical_gaps.len(),
+                s.critical_gaps_count
+            ));
+        }
+        out.push_str("        </li>\n");
+    }
+    out.push_str("      </ol>\n");
+    out.push_str("    </div>\n");
+
+    out.push_str("    <div class=\"compare-card\">\n");
+    out.push_str(&format!("      <h3>{}</h3>\n", s.compare_pillar_radar));
+    out.push_str(&render_radar_chart(
+        ranked,
+        &pillar_ids,
+        pillar_label,
+        escape_html,
+    ));
+    out.push_str("    </div>\n");
+
+    out.push_str("  </div>\n");
+    out.push_str("</section>\n");
     out
 }
 
