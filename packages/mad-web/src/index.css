@@ -2953,6 +2953,33 @@ body {
   color: var(--mad-text-muted);
 }
 
+.vendor-doc-section-title-field {
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--mad-border);
+}
+
+.vendor-doc-section-title-input {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--mad-navy);
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--mad-border);
+  border-radius: var(--mad-radius-sm);
+  background: var(--mad-surface-2);
+}
+
+.vendor-doc-section-title-input:focus {
+  outline: none;
+  border-color: var(--mad-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 180, 216, 0.15);
+}
+
+.vendor-doc-section-name-field input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .vendor-doc-stats {
   display: flex;
   flex-wrap: wrap;

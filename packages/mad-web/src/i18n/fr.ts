@@ -553,6 +553,7 @@ export const fr: Translations = {
       neutral: "Note",
     },
     addItem: "+ Ajouter un élément",
+    newItemPrompt: "Sujet du nouvel élément de documentation :",
     removeItem: "Supprimer",
     noVendors: "Ajoutez des éditeurs dans l'onglet Éditeurs pour créer de la documentation.",
     noSections: "Aucune section. Créez-en une ou ajoutez l'exemple Confidentialité.",

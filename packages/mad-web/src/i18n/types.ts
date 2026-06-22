@@ -493,6 +493,7 @@ export interface Translations {
       neutral: string;
     };
     addItem: string;
+    newItemPrompt: string;
     removeItem: string;
     noVendors: string;
     noSections: string;

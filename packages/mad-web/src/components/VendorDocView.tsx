@@ -51,6 +51,11 @@ export function VendorDocView({
   const sections = vendorId ? (vendorDocs[vendorId] ?? []) : [];
   const activeSection = sections.find((section) => section.id === docId);
   const [local, setLocal] = useState<VendorDocSection | null>(activeSection ?? null);
+  const [sectionName, setSectionName] = useState(activeSection?.name ?? "");
+  const onSaveRef = useRef(onSave);
+  const sectionNameRef = useRef(sectionName);
+  onSaveRef.current = onSave;
+  sectionNameRef.current = sectionName;
 
   useEffect(() => {
     if (!vendorId) return;
@@ -59,6 +64,10 @@ export function VendorDocView({
       setDocId(entries[0]?.id ?? "");
     }
   }, [vendorId, vendorDocs, docId]);
+
+  useEffect(() => {
+    setSectionName(activeSection?.name ?? "");
+  }, [activeSection?.id, activeSection?.name]);
 
   useEffect(() => {
     const raw = sections.find((entry) => entry.id === docId) ?? null;
@@ -72,13 +81,13 @@ export function VendorDocView({
     setFilter("all");
     setExpandedIds(new Set());
     if (needsDedupe && vendorId) {
-      void onSave(vendorId, section.id, section.name, {
+      void onSaveRef.current(vendorId, section.id, sectionNameRef.current.trim() || section.name, {
         color: section.color,
         overview: section.overview,
         items: section.items,
       });
     }
-  }, [docId, sections, vendorId, onSave]);
+  }, [docId, sections, vendorId]);
 
   useEffect(
     () => () => {
@@ -97,7 +106,8 @@ export function VendorDocView({
             : normalizeVendorDocSection(updater);
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => {
-          void onSave(vendorId, next.id, next.name, {
+          const name = sectionNameRef.current.trim() || prev.name;
+          void onSaveRef.current(vendorId, next.id, name, {
             color: next.color,
             overview: next.overview,
             items: next.items,
@@ -106,7 +116,7 @@ export function VendorDocView({
         return next;
       });
     },
-    [vendorId, onSave],
+    [vendorId],
   );
 
   const selectedVendor = vendors.find((v) => v.id === vendorId);
@@ -125,8 +135,27 @@ export function VendorDocView({
 
   const highlightedCount = local ? countHighlighted(local.items) : 0;
 
-  const updateSectionMeta = (patch: Partial<Pick<VendorDocSection, "name" | "overview" | "color">>) => {
+  const updateSectionMeta = (patch: Partial<Pick<VendorDocSection, "overview" | "color">>) => {
     scheduleSave((prev) => ({ ...prev, ...patch }));
+  };
+
+  const handleSectionNameBlur = () => {
+    const trimmed = sectionName.trim();
+    if (!vendorId || !docId || !local) return;
+    if (!trimmed || trimmed === activeSection?.name) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    void onSaveRef.current(vendorId, docId, trimmed, {
+      color: local.color,
+      overview: local.overview,
+      items: local.items,
+    });
+  };
+
+  const selectSection = (nextId: string) => {
+    if (nextId !== docId) {
+      handleSectionNameBlur();
+    }
+    setDocId(nextId);
   };
 
   const updateItem = (id: string, patch: Partial<VendorDocItem>) => {
@@ -144,8 +173,12 @@ export function VendorDocView({
   };
 
   const addItem = () => {
+    const title = prompt(t.vendorDocs.newItemPrompt, "");
+    if (title === null) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
     const defaultGroup = filter !== "all" ? filter : "";
-    const item = { ...newVendorDocItem(), group: defaultGroup };
+    const item = { ...newVendorDocItem(), group: defaultGroup, title: trimmed };
     scheduleSave((prev) => ({
       ...prev,
       items: [...prev.items, item],
@@ -218,7 +251,13 @@ export function VendorDocView({
           <div className="vendor-doc-toolbar-pickers">
             <label className="vendor-doc-field">
               <span>{t.vendorDocs.vendor}</span>
-              <select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
+              <select
+                value={vendorId}
+                onChange={(e) => {
+                  handleSectionNameBlur();
+                  setVendorId(e.target.value);
+                }}
+              >
                 {vendors.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name}
@@ -227,13 +266,18 @@ export function VendorDocView({
               </select>
             </label>
 
-            <label className="vendor-doc-field">
+            <label className="vendor-doc-field vendor-doc-section-name-field">
               <span>{t.vendorDocs.sectionName}</span>
               <input
                 type="text"
-                value={local?.name ?? ""}
+                value={sectionName}
                 placeholder={t.vendorDocs.sectionNamePlaceholder}
-                onChange={(e) => updateSectionMeta({ name: e.target.value })}
+                disabled={!local}
+                onChange={(e) => setSectionName(e.target.value)}
+                onBlur={handleSectionNameBlur}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
               />
             </label>
 
@@ -273,17 +317,21 @@ export function VendorDocView({
           <div className="vendor-doc-section-tabs">
             {sections.map((section) => {
               const hex = resolveDocColorHex(section.color);
+              const label =
+                section.id === docId
+                  ? sectionName.trim() || t.vendorDocs.unnamedSection
+                  : section.name.trim() || t.vendorDocs.unnamedSection;
               return (
                 <button
                   key={section.id}
                   type="button"
                   className={`vendor-doc-section-tab${section.id === docId ? " active" : ""}`}
-                  onClick={() => setDocId(section.id)}
+                  onClick={() => selectSection(section.id)}
                 >
                   {hex && (
                     <span className="vendor-doc-section-dot" style={{ background: hex }} />
                   )}
-                  {section.name || t.vendorDocs.unnamedSection}
+                  {label}
                 </button>
               );
             })}
@@ -299,6 +347,20 @@ export function VendorDocView({
         ) : (
           <div className="vendor-doc-body">
             <div className="vendor-doc-overview-card">
+              <label className="vendor-doc-section-title-field">
+                <span>{t.vendorDocs.sectionName}</span>
+                <input
+                  type="text"
+                  className="vendor-doc-section-title-input"
+                  value={sectionName}
+                  placeholder={t.vendorDocs.sectionNamePlaceholder}
+                  onChange={(e) => setSectionName(e.target.value)}
+                  onBlur={handleSectionNameBlur}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                />
+              </label>
               <label>
                 <span>{t.vendorDocs.overview}</span>
                 <textarea

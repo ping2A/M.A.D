@@ -546,6 +546,7 @@ export const en: Translations = {
       neutral: "Note",
     },
     addItem: "+ Add item",
+    newItemPrompt: "Topic for the new documentation item:",
     removeItem: "Remove",
     noVendors: "Add vendors on the Vendors tab to create documentation.",
     noSections: "No documentation sections yet. Create one or add the Privacy example.",
