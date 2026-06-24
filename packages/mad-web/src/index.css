@@ -1413,6 +1413,123 @@ body {
   gap: 0.75rem;
 }
 
+.vsm-workspace.vsm-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.65rem;
+  background: var(--mad-bg, #eef2f6);
+  overflow: hidden;
+}
+
+.vsm-fullscreen-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.65rem 0.85rem;
+  flex-shrink: 0;
+}
+
+.vsm-fullscreen-bar .section-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.vsm-fullscreen-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--mad-text-muted);
+}
+
+.vsm-fullscreen-bar-title {
+  min-width: 0;
+}
+
+.vsm-toolbar-pickers-compact {
+  gap: 0.5rem 0.75rem;
+}
+
+.vsm-toolbar-pickers-compact .vsm-vendor-picker select,
+.vsm-toolbar-pickers-compact .vsm-stream-picker select,
+.vsm-toolbar-pickers-compact .vsm-stream-name input {
+  min-width: 140px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.85rem;
+}
+
+.vsm-layout-fullscreen {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.vsm-layout-fullscreen .vsm-toolbar {
+  flex-shrink: 0;
+}
+
+.vsm-layout-fullscreen .vsm-main {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.vsm-layout-fullscreen .vsm-canvas {
+  height: 100%;
+  min-height: 0;
+}
+
+.vsm-layout-fullscreen .vsm-sidebar {
+  min-height: 0;
+  max-height: 100%;
+}
+
+.vsm-layout-fullscreen .vsm-inspector-panel {
+  max-height: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.vsm-layout-fullscreen .vsm-timeline {
+  flex-shrink: 0;
+  max-height: min(28vh, 240px);
+  overflow-y: auto;
+}
+
+.vsm-main--hide-palette .vsm-palette {
+  display: none;
+}
+
+.vsm-main--hide-sidebar .vsm-sidebar {
+  display: none;
+}
+
+.vsm-fullscreen .vsm-main--hide-palette {
+  grid-template-columns: 1fr 300px;
+}
+
+.vsm-fullscreen .vsm-main--hide-sidebar {
+  grid-template-columns: 196px 1fr;
+}
+
+.vsm-fullscreen .vsm-main--hide-palette.vsm-main--hide-sidebar {
+  grid-template-columns: 1fr;
+}
+
+.vsm-toolbar-actions .btn.active {
+  border-color: var(--mad-cyan);
+  background: color-mix(in srgb, var(--mad-cyan) 12%, white);
+  color: var(--mad-navy);
+}
+
+.vsm-fullscreen-exit {
+  border-color: var(--mad-navy);
+}
+
 .vsm-toolbar {
   display: flex;
   align-items: center;
@@ -1450,7 +1567,7 @@ body {
   display: grid;
   grid-template-columns: 196px 1fr 300px;
   gap: 0.75rem;
-  min-height: 560px;
+  min-height: min(72vh, 720px);
 }
 
 @media (max-width: 1100px) {
@@ -1523,7 +1640,7 @@ body {
 }
 
 .vsm-canvas {
-  height: 560px;
+  height: min(72vh, 720px);
   border-radius: var(--mad-radius);
   overflow: hidden;
   border: 1px solid var(--mad-border);

@@ -393,6 +393,12 @@ export interface Translations {
     loadTemplate: string;
     templateConfirm: string;
     fitView: string;
+    enterFullscreen: string;
+    exitFullscreen: string;
+    showPalette: string;
+    hidePalette: string;
+    showInspector: string;
+    hideInspector: string;
     palette: string;
     paletteHint: string;
     paletteProcess: string;

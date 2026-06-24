@@ -115,14 +115,105 @@ function nodeSize(node: Node): { width: number; height: number } {
   };
 }
 
+function VsmStreamControls({
+  vendors,
+  vendorId,
+  onVendorChange,
+  entries,
+  streamId,
+  onStreamChange,
+  streamName,
+  onStreamNameChange,
+  onStreamNameBlur,
+  onNewStream,
+  onDeleteStream,
+  saving,
+  compact = false,
+}: {
+  vendors: Vendor[];
+  vendorId: string;
+  onVendorChange: (id: string) => void;
+  entries: ValueStreamEntry[];
+  streamId: string;
+  onStreamChange: (id: string) => void;
+  streamName: string;
+  onStreamNameChange: (name: string) => void;
+  onStreamNameBlur: () => void;
+  onNewStream: () => void;
+  onDeleteStream: () => void;
+  saving?: boolean;
+  compact?: boolean;
+}) {
+  const { t } = useLocale();
+
+  return (
+    <div className={`vsm-toolbar-pickers${compact ? " vsm-toolbar-pickers-compact" : ""}`}>
+      <label className="vsm-vendor-picker">
+        {t.vsm.vendor}
+        <select value={vendorId} onChange={(e) => onVendorChange(e.target.value)}>
+          {vendors.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {entries.length > 0 && (
+        <label className="vsm-stream-picker">
+          {t.vsm.stream}
+          <select value={streamId} onChange={(e) => onStreamChange(e.target.value)}>
+            {entries.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      <label className="vsm-stream-name">
+        {t.vsm.streamName}
+        <input
+          value={streamName}
+          onChange={(e) => onStreamNameChange(e.target.value)}
+          onBlur={onStreamNameBlur}
+          placeholder={t.vsm.defaultStreamName}
+        />
+      </label>
+      <div className="vsm-stream-actions">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={onNewStream}
+          disabled={saving}
+        >
+          {t.vsm.newStream}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={onDeleteStream}
+          disabled={saving || entries.length <= 1}
+          title={entries.length <= 1 ? t.vsm.deleteStreamDisabled : t.vsm.deleteStream}
+        >
+          {t.vsm.deleteStream}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ValueStreamEditor({
   vendor,
   initialMap,
   onSave,
+  fullscreen = false,
+  onToggleFullscreen,
 }: {
   vendor: Vendor;
   initialMap: ValueStreamMap;
   onSave: (map: ValueStreamMap) => Promise<void>;
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }) {
   const { t } = useLocale();
   const { screenToFlowPosition, fitView, fitBounds } = useReactFlow();
@@ -144,6 +235,8 @@ function ValueStreamEditor({
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [messageDraft, setMessageDraft] = useState("");
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("properties");
+  const [paletteOpen, setPaletteOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipSave = useRef(true);
   const onSaveRef = useRef(onSave);
@@ -175,6 +268,25 @@ function ValueStreamEditor({
     // Remount via parent key handles vendor/stream switches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const timer = window.setTimeout(() => fitView({ padding: 0.12, duration: 250 }), 120);
+    return () => window.clearTimeout(timer);
+  }, [fullscreen, fitView, paletteOpen, sidebarOpen]);
+
+  useEffect(() => {
+    if (!fullscreen || !onToggleFullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onToggleFullscreen();
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [fullscreen, onToggleFullscreen]);
 
   useEffect(() => {
     if (skipSave.current) {
@@ -521,7 +633,7 @@ function ValueStreamEditor({
 
   return (
     <VsmFlowTypesProvider flowTypes={allFlowTypes}>
-    <div className="vsm-layout">
+    <div className={`vsm-layout${fullscreen ? " vsm-layout-fullscreen" : ""}`}>
       <div className="vsm-toolbar card">
         <div className="vsm-toolbar-left">
           <span className="vsm-vendor-name">{vendor.name}</span>
@@ -530,6 +642,26 @@ function ValueStreamEditor({
           </span>
         </div>
         <div className="vsm-toolbar-actions">
+          {fullscreen && (
+            <>
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${paletteOpen ? " active" : ""}`}
+                onClick={() => setPaletteOpen((open) => !open)}
+                title={paletteOpen ? t.vsm.hidePalette : t.vsm.showPalette}
+              >
+                {t.vsm.palette}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-secondary btn-sm${sidebarOpen ? " active" : ""}`}
+                onClick={() => setSidebarOpen((open) => !open)}
+                title={sidebarOpen ? t.vsm.hideInspector : t.vsm.showInspector}
+              >
+                {t.vsm.inspector}
+              </button>
+            </>
+          )}
           <button type="button" className="btn btn-secondary btn-sm" onClick={loadTemplate}>
             {t.vsm.loadTemplate}
           </button>
@@ -564,6 +696,16 @@ function ValueStreamEditor({
           >
             {t.vsm.clearAll}
           </button>
+          {onToggleFullscreen && (
+            <button
+              type="button"
+              className={`btn btn-secondary btn-sm${fullscreen ? " vsm-fullscreen-exit" : ""}`}
+              onClick={onToggleFullscreen}
+              title={fullscreen ? t.vsm.exitFullscreen : t.vsm.enterFullscreen}
+            >
+              {fullscreen ? t.vsm.exitFullscreen : t.vsm.enterFullscreen}
+            </button>
+          )}
           {isSaving && (
             <span className="saving-indicator">
               <span className="saving-dot" /> {t.vsm.saving}
@@ -572,7 +714,15 @@ function ValueStreamEditor({
         </div>
       </div>
 
-      <div className="vsm-main">
+      <div
+        className={[
+          "vsm-main",
+          fullscreen && !paletteOpen ? "vsm-main--hide-palette" : "",
+          fullscreen && !sidebarOpen ? "vsm-main--hide-sidebar" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <aside className="vsm-palette card">
           <h3>{t.vsm.palette}</h3>
           <p className="vsm-hint">{t.vsm.paletteHint}</p>
@@ -1000,6 +1150,7 @@ export function ValueStreamView({
   const [vendorId, setVendorId] = useState(vendors[0]?.id ?? "");
   const [streamId, setStreamId] = useState("");
   const [streamName, setStreamName] = useState("");
+  const [fullscreen, setFullscreen] = useState(false);
   const ensuredVendorRef = useRef<string | null>(null);
 
   const entries = vendorId ? (valueStreams[vendorId] ?? []) : [];
@@ -1077,6 +1228,24 @@ export function ValueStreamView({
     void onSave(vendorId, streamId, trimmed, map);
   };
 
+  const streamControls = (
+    <VsmStreamControls
+      vendors={vendors}
+      vendorId={vendorId}
+      onVendorChange={setVendorId}
+      entries={entries}
+      streamId={streamId}
+      onStreamChange={setStreamId}
+      streamName={streamName}
+      onStreamNameChange={setStreamName}
+      onStreamNameBlur={handleStreamNameBlur}
+      onNewStream={() => void handleNewStream()}
+      onDeleteStream={() => void handleDeleteStream()}
+      saving={saving}
+      compact={fullscreen}
+    />
+  );
+
   if (vendors.length === 0) {
     return (
       <section className="vsm-page">
@@ -1090,74 +1259,38 @@ export function ValueStreamView({
 
   return (
     <section className="vsm-page">
-      <div className="toolbar">
-        <div>
-          <h2 className="section-title">{t.vsm.title}</h2>
-          <p className="section-intro">{t.vsm.intro}</p>
-        </div>
-        <div className="vsm-toolbar-pickers">
-          <label className="vsm-vendor-picker">
-            {t.vsm.vendor}
-            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-              {vendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {entries.length > 0 && (
-            <label className="vsm-stream-picker">
-              {t.vsm.stream}
-              <select value={streamId} onChange={(e) => setStreamId(e.target.value)}>
-                {entries.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="vsm-stream-name">
-            {t.vsm.streamName}
-            <input
-              value={streamName}
-              onChange={(e) => setStreamName(e.target.value)}
-              onBlur={handleStreamNameBlur}
-              placeholder={t.vsm.defaultStreamName}
-            />
-          </label>
-          <div className="vsm-stream-actions">
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => void handleNewStream()}
-              disabled={saving}
-            >
-              {t.vsm.newStream}
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={() => void handleDeleteStream()}
-              disabled={saving || entries.length <= 1}
-              title={entries.length <= 1 ? t.vsm.deleteStreamDisabled : t.vsm.deleteStream}
-            >
-              {t.vsm.deleteStream}
-            </button>
+      {!fullscreen && (
+        <div className="toolbar">
+          <div>
+            <h2 className="section-title">{t.vsm.title}</h2>
+            <p className="section-intro">{t.vsm.intro}</p>
           </div>
+          {streamControls}
         </div>
-      </div>
+      )}
 
       {vendor && streamId && (
-        <ReactFlowProvider>
-          <ValueStreamEditor
-            key={`${vendor.id}-${streamId}`}
-            vendor={vendor}
-            initialMap={map}
-            onSave={handleEditorSave}
-          />
-        </ReactFlowProvider>
+        <div className={`vsm-workspace${fullscreen ? " vsm-fullscreen" : ""}`}>
+          {fullscreen && (
+            <div className="vsm-fullscreen-bar card">
+              <div className="vsm-fullscreen-bar-title">
+                <h2 className="section-title">{t.vsm.title}</h2>
+                <p className="vsm-fullscreen-hint">{t.vsm.canvasHint}</p>
+              </div>
+              {streamControls}
+            </div>
+          )}
+          <ReactFlowProvider>
+            <ValueStreamEditor
+              key={`${vendor.id}-${streamId}`}
+              vendor={vendor}
+              initialMap={map}
+              onSave={handleEditorSave}
+              fullscreen={fullscreen}
+              onToggleFullscreen={() => setFullscreen((open) => !open)}
+            />
+          </ReactFlowProvider>
+        </div>
       )}
     </section>
   );
